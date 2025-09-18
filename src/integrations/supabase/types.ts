@@ -83,55 +83,87 @@ export type Database = {
           },
         ]
       }
-      mentor_sessions: {
+      call_sessions: {
         Row: {
-          created_at: string
-          duration_minutes: number | null
+          booking_id: string
+          call_type: string
+          callee_id: string
+          caller_id: string
+          created_at: string | null
+          duration_seconds: number | null
           ended_at: string | null
           id: string
-          mentor_id: string
-          price: number | null
-          scheduled_at: string | null
-          session_room_id: string | null
-          session_type: string
+          recording_url: string | null
           started_at: string | null
           status: string | null
-          student_id: string
-          updated_at: string
         }
         Insert: {
-          created_at?: string
-          duration_minutes?: number | null
+          booking_id: string
+          call_type: string
+          callee_id: string
+          caller_id: string
+          created_at?: string | null
+          duration_seconds?: number | null
           ended_at?: string | null
           id?: string
-          mentor_id: string
-          price?: number | null
-          scheduled_at?: string | null
-          session_room_id?: string | null
-          session_type: string
+          recording_url?: string | null
           started_at?: string | null
           status?: string | null
-          student_id: string
-          updated_at?: string
         }
         Update: {
-          created_at?: string
-          duration_minutes?: number | null
+          booking_id?: string
+          call_type?: string
+          callee_id?: string
+          caller_id?: string
+          created_at?: string | null
+          duration_seconds?: number | null
           ended_at?: string | null
           id?: string
-          mentor_id?: string
-          price?: number | null
-          scheduled_at?: string | null
-          session_room_id?: string | null
-          session_type?: string
+          recording_url?: string | null
           started_at?: string | null
           status?: string | null
-          student_id?: string
-          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "mentor_sessions_mentor_id_fkey"
+            foreignKeyName: "call_sessions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mentor_availability: {
+        Row: {
+          created_at: string | null
+          day_of_week: number
+          end_time: string
+          id: string
+          is_available: boolean | null
+          mentor_id: string
+          start_time: string
+        }
+        Insert: {
+          created_at?: string | null
+          day_of_week: number
+          end_time: string
+          id?: string
+          is_available?: boolean | null
+          mentor_id: string
+          start_time: string
+        }
+        Update: {
+          created_at?: string | null
+          day_of_week?: number
+          end_time?: string
+          id?: string
+          is_available?: boolean | null
+          mentor_id?: string
+          start_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mentor_availability_mentor_id_fkey"
             columns: ["mentor_id"]
             isOneToOne: false
             referencedRelation: "mentors"
@@ -143,6 +175,7 @@ export type Database = {
         Row: {
           availability_status: string | null
           bio: string | null
+          cancellation_policy: string | null
           created_at: string
           expertise: string[] | null
           hourly_rate: number | null
@@ -152,15 +185,19 @@ export type Database = {
           name: string
           profile_image_url: string | null
           rating: number | null
+          response_time_hours: number | null
+          session_types: string[] | null
           title: string
           total_reviews: number | null
           updated_at: string
           user_id: string | null
+          video_intro_url: string | null
           years_experience: number | null
         }
         Insert: {
           availability_status?: string | null
           bio?: string | null
+          cancellation_policy?: string | null
           created_at?: string
           expertise?: string[] | null
           hourly_rate?: number | null
@@ -170,15 +207,19 @@ export type Database = {
           name: string
           profile_image_url?: string | null
           rating?: number | null
+          response_time_hours?: number | null
+          session_types?: string[] | null
           title: string
           total_reviews?: number | null
           updated_at?: string
           user_id?: string | null
+          video_intro_url?: string | null
           years_experience?: number | null
         }
         Update: {
           availability_status?: string | null
           bio?: string | null
+          cancellation_policy?: string | null
           created_at?: string
           expertise?: string[] | null
           hourly_rate?: number | null
@@ -188,67 +229,130 @@ export type Database = {
           name?: string
           profile_image_url?: string | null
           rating?: number | null
+          response_time_hours?: number | null
+          session_types?: string[] | null
           title?: string
           total_reviews?: number | null
           updated_at?: string
           user_id?: string | null
+          video_intro_url?: string | null
           years_experience?: number | null
         }
         Relationships: []
       }
-      sessions: {
+      messages: {
         Row: {
+          content: string
           created_at: string | null
-          duration: number | null
-          feedback: string | null
           id: string
-          meeting_type: string | null
-          mentee_id: string | null
-          mentor_id: string | null
-          rating: number | null
-          scheduled_at: string
-          status: string | null
-          topic: string
+          is_read: boolean | null
+          message_type: string | null
+          recipient_id: string
+          sender_id: string
+          updated_at: string | null
         }
         Insert: {
+          content: string
           created_at?: string | null
-          duration?: number | null
-          feedback?: string | null
           id?: string
-          meeting_type?: string | null
-          mentee_id?: string | null
-          mentor_id?: string | null
-          rating?: number | null
-          scheduled_at: string
-          status?: string | null
-          topic: string
+          is_read?: boolean | null
+          message_type?: string | null
+          recipient_id: string
+          sender_id: string
+          updated_at?: string | null
         }
         Update: {
+          content?: string
           created_at?: string | null
-          duration?: number | null
-          feedback?: string | null
           id?: string
-          meeting_type?: string | null
-          mentee_id?: string | null
-          mentor_id?: string | null
-          rating?: number | null
-          scheduled_at?: string
-          status?: string | null
-          topic?: string
+          is_read?: boolean | null
+          message_type?: string | null
+          recipient_id?: string
+          sender_id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          action_url: string | null
+          created_at: string | null
+          id: string
+          is_read: boolean | null
+          message: string
+          title: string
+          type: string | null
+          user_id: string
+        }
+        Insert: {
+          action_url?: string | null
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message: string
+          title: string
+          type?: string | null
+          user_id: string
+        }
+        Update: {
+          action_url?: string | null
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message?: string
+          title?: string
+          type?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      reviews: {
+        Row: {
+          booking_id: string
+          created_at: string | null
+          id: string
+          is_public: boolean | null
+          mentor_id: string
+          rating: number
+          review_text: string | null
+          reviewer_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          booking_id: string
+          created_at?: string | null
+          id?: string
+          is_public?: boolean | null
+          mentor_id: string
+          rating: number
+          review_text?: string | null
+          reviewer_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          booking_id?: string
+          created_at?: string | null
+          id?: string
+          is_public?: boolean | null
+          mentor_id?: string
+          rating?: number
+          review_text?: string | null
+          reviewer_id?: string
+          updated_at?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "sessions_mentee_id_fkey"
-            columns: ["mentee_id"]
+            foreignKeyName: "reviews_booking_id_fkey"
+            columns: ["booking_id"]
             isOneToOne: false
-            referencedRelation: "users"
+            referencedRelation: "bookings"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "sessions_mentor_id_fkey"
+            foreignKeyName: "reviews_mentor_id_fkey"
             columns: ["mentor_id"]
             isOneToOne: false
-            referencedRelation: "users"
+            referencedRelation: "mentors"
             referencedColumns: ["id"]
           },
         ]
@@ -265,14 +369,22 @@ export type Database = {
           experience: string | null
           expertise: string[] | null
           first_name: string
+          github_url: string | null
           goals: string | null
           hourly_rate: number | null
           id: string
           interests: string[] | null
+          is_active: boolean | null
+          last_active_at: string | null
           last_name: string
+          linkedin_url: string | null
           phone: string | null
+          portfolio_url: string | null
           profile_complete: boolean | null
+          profile_image_url: string | null
           rating: number | null
+          role: string | null
+          timezone: string | null
           total_sessions: number | null
           user_type: string
           verified: boolean | null
@@ -288,14 +400,22 @@ export type Database = {
           experience?: string | null
           expertise?: string[] | null
           first_name: string
+          github_url?: string | null
           goals?: string | null
           hourly_rate?: number | null
           id?: string
           interests?: string[] | null
+          is_active?: boolean | null
+          last_active_at?: string | null
           last_name: string
+          linkedin_url?: string | null
           phone?: string | null
+          portfolio_url?: string | null
           profile_complete?: boolean | null
+          profile_image_url?: string | null
           rating?: number | null
+          role?: string | null
+          timezone?: string | null
           total_sessions?: number | null
           user_type: string
           verified?: boolean | null
@@ -311,14 +431,22 @@ export type Database = {
           experience?: string | null
           expertise?: string[] | null
           first_name?: string
+          github_url?: string | null
           goals?: string | null
           hourly_rate?: number | null
           id?: string
           interests?: string[] | null
+          is_active?: boolean | null
+          last_active_at?: string | null
           last_name?: string
+          linkedin_url?: string | null
           phone?: string | null
+          portfolio_url?: string | null
           profile_complete?: boolean | null
+          profile_image_url?: string | null
           rating?: number | null
+          role?: string | null
+          timezone?: string | null
           total_sessions?: number | null
           user_type?: string
           verified?: boolean | null

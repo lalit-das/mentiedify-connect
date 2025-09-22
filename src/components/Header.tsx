@@ -1,10 +1,40 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Search, User, Bell } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Menu, X, Search, User, Bell, LogOut } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      navigate('/');
+      toast({
+        title: "Signed out",
+        description: "You have been successfully signed out.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to sign out. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-50 shadow-sm">
@@ -39,15 +69,49 @@ const Header = () => {
             <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
               <Search className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
-              <Bell className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
-              Log In
-            </Button>
-            <Button className="bg-gradient-primary hover:opacity-90 transition-opacity">
-              Sign Up
-            </Button>
+            
+            {user ? (
+              <>
+                <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
+                  <Bell className="h-4 w-4" />
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="flex items-center space-x-2">
+                      <User className="h-4 w-4" />
+                      <span className="hidden lg:inline">{user.email}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link to="/profile">Profile</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/mentee-dashboard">Dashboard</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/messages">Messages</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSignOut} className="text-red-600">
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign Out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to="/auth">Log In</Link>
+                </Button>
+                <Button className="bg-gradient-primary hover:opacity-90 transition-opacity" asChild>
+                  <Link to="/auth">Sign Up</Link>
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -92,12 +156,39 @@ const Header = () => {
                 About
               </Link>
               <div className="flex flex-col space-y-2 pt-4 border-t border-border">
-                <Button variant="ghost" className="justify-start">
-                  Log In
-                </Button>
-                <Button className="bg-gradient-primary hover:opacity-90 transition-opacity">
-                  Sign Up
-                </Button>
+                {user ? (
+                  <>
+                    <Button variant="ghost" className="justify-start" asChild>
+                      <Link to="/profile" onClick={() => setIsMenuOpen(false)}>Profile</Link>
+                    </Button>
+                    <Button variant="ghost" className="justify-start" asChild>
+                      <Link to="/mentee-dashboard" onClick={() => setIsMenuOpen(false)}>Dashboard</Link>
+                    </Button>
+                    <Button variant="ghost" className="justify-start" asChild>
+                      <Link to="/messages" onClick={() => setIsMenuOpen(false)}>Messages</Link>
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      className="justify-start text-red-600"
+                      onClick={() => {
+                        handleSignOut();
+                        setIsMenuOpen(false);
+                      }}
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign Out
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="ghost" className="justify-start" asChild>
+                      <Link to="/auth" onClick={() => setIsMenuOpen(false)}>Log In</Link>
+                    </Button>
+                    <Button className="bg-gradient-primary hover:opacity-90 transition-opacity" asChild>
+                      <Link to="/auth" onClick={() => setIsMenuOpen(false)}>Sign Up</Link>
+                    </Button>
+                  </>
+                )}
               </div>
             </nav>
           </div>

@@ -61,6 +61,12 @@ const AuthPage = () => {
             description: "Invalid email or password. Please check your credentials and try again.",
             variant: "destructive",
           });
+        } else if (error.message === "Email not confirmed") {
+          toast({
+            title: "Email Not Confirmed",
+            description: "Please check your email and click the confirmation link before signing in.",
+            variant: "destructive",
+          });
         } else {
           toast({
             title: "Login Failed",

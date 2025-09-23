@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { Calendar, Clock, Video, Phone, MessageSquare, ArrowLeft, Check } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,29 +8,84 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 const BookingPage = () => {
   const { mentorId } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [selectedPackage, setSelectedPackage] = useState("single");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
   const [sessionType, setSessionType] = useState("video");
   const [notes, setNotes] = useState("");
+  const [mentor, setMentor] = useState<any>(null);
+  const [availability, setAvailability] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [booking, setBooking] = useState(false);
 
-  // Mock mentor data - in real app, fetch based on mentorId
-  const mentor = {
-    id: 1,
-    name: "Dr. Sarah Wilson",
-    title: "Senior Product Manager",
-    company: "Google",
-    rating: 4.9,
-    reviews: 127,
-    hourlyRate: 150,
-    profileImage: "/placeholder.svg",
-    expertise: ["Product Strategy", "Leadership", "Career Growth"],
-    responseTime: "Usually responds within 2 hours"
+  useEffect(() => {
+    if (!mentorId) {
+      navigate('/explore');
+      return;
+    }
+    fetchMentorData();
+  }, [mentorId, navigate]);
+
+  const fetchMentorData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch mentor details
+      const { data: mentorData, error: mentorError } = await supabase
+        .from('mentors')
+        .select('*')
+        .eq('id', mentorId)
+        .single();
+
+      if (mentorError) {
+        throw mentorError;
+      }
+
+      if (!mentorData) {
+        toast({
+          title: "Mentor not found",
+          description: "The mentor you're looking for doesn't exist.",
+          variant: "destructive",
+        });
+        navigate('/explore');
+        return;
+      }
+
+      setMentor(mentorData);
+
+      // Fetch mentor availability
+      const { data: availabilityData, error: availabilityError } = await supabase
+        .from('mentor_availability')
+        .select('*')
+        .eq('mentor_id', mentorId)
+        .eq('is_available', true);
+
+      if (availabilityError) {
+        throw availabilityError;
+      }
+
+      setAvailability(availabilityData || []);
+    } catch (error) {
+      console.error('Error fetching mentor data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load mentor information. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const packages = [
@@ -38,44 +93,162 @@ const BookingPage = () => {
       id: "single",
       name: "Single Session",
       duration: "60 minutes",
-      price: 150,
+      price: mentor?.hourly_rate || 150,
       description: "One-time mentoring session"
     },
     {
       id: "monthly",
-      name: "Monthly Package",
+      name: "Monthly Package", 
       duration: "4 sessions (60 min each)",
-      price: 540,
-      originalPrice: 600,
+      price: Math.round((mentor?.hourly_rate || 150) * 4 * 0.9),
+      originalPrice: (mentor?.hourly_rate || 150) * 4,
       description: "Save 10% with monthly commitment"
     },
     {
       id: "intensive",
       name: "Intensive Package",
-      duration: "8 sessions (60 min each)",
-      price: 1080,
-      originalPrice: 1200,
+      duration: "8 sessions (60 min each)", 
+      price: Math.round((mentor?.hourly_rate || 150) * 8 * 0.9),
+      originalPrice: (mentor?.hourly_rate || 150) * 8,
       description: "Save 10% with intensive mentoring"
     }
   ];
 
-  const availableSlots = [
-    { date: "2024-01-20", slots: ["09:00", "10:30", "14:00", "16:00"] },
-    { date: "2024-01-21", slots: ["10:00", "11:30", "15:00"] },
-    { date: "2024-01-22", slots: ["09:30", "13:00", "17:00"] }
-  ];
-
-  const handleBooking = () => {
-    // Handle booking logic here
-    console.log("Booking details:", {
-      mentorId,
-      package: selectedPackage,
-      date: selectedDate,
-      time: selectedTime,
-      sessionType,
-      notes
-    });
+  // Generate available slots from mentor availability
+  const generateAvailableSlots = () => {
+    const slots = [];
+    const today = new Date();
+    
+    for (let i = 1; i <= 14; i++) { // Next 14 days
+      const date = new Date(today);
+      date.setDate(today.getDate() + i);
+      const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      
+      const dayAvailability = availability.filter(avail => avail.day_of_week === dayOfWeek);
+      
+      if (dayAvailability.length > 0) {
+        const daySlots = [];
+        dayAvailability.forEach(avail => {
+          // Generate hourly slots between start and end time
+          const startHour = parseInt(avail.start_time.split(':')[0]);
+          const endHour = parseInt(avail.end_time.split(':')[0]);
+          
+          for (let hour = startHour; hour < endHour; hour++) {
+            daySlots.push(`${hour.toString().padStart(2, '0')}:00`);
+          }
+        });
+        
+        if (daySlots.length > 0) {
+          slots.push({
+            date: date.toISOString().split('T')[0],
+            slots: daySlots.sort()
+          });
+        }
+      }
+    }
+    
+    return slots;
   };
+
+  const availableSlots = generateAvailableSlots();
+
+  const handleBooking = async () => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please sign in to book a session.",
+        variant: "destructive",
+      });
+      navigate('/auth');
+      return;
+    }
+
+    if (!selectedDate || !selectedTime) {
+      toast({
+        title: "Missing information",
+        description: "Please select a date and time for your session.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setBooking(true);
+      
+      const selectedPkg = packages.find(p => p.id === selectedPackage);
+      
+      const { data, error } = await supabase
+        .from('bookings')
+        .insert({
+          mentor_id: mentorId,
+          mentee_id: user.id,
+          session_date: selectedDate,
+          session_time: selectedTime,
+          session_type: sessionType,
+          package_type: selectedPackage,
+          price: selectedPkg?.price || 0,
+          duration: 60,
+          notes: notes || null,
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Booking confirmed!",
+        description: "Your session has been booked. The mentor will be notified.",
+      });
+
+      // Navigate to dashboard or booking confirmation page
+      navigate('/mentee-dashboard');
+      
+    } catch (error) {
+      console.error('Error creating booking:', error);
+      toast({
+        title: "Booking failed",
+        description: "There was an error creating your booking. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBooking(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (!mentor) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <div className="text-center py-12">
+            <h2 className="text-2xl font-bold mb-2">Mentor Not Found</h2>
+            <p className="text-muted-foreground mb-4">The mentor you're looking for doesn't exist.</p>
+            <Link to="/explore">
+              <Button>Browse Mentors</Button>
+            </Link>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -96,36 +269,37 @@ const BookingPage = () => {
               <CardContent className="p-6">
                 <div className="flex items-start space-x-4 mb-4">
                   <img
-                    src={mentor.profileImage}
+                    src={mentor.profile_image_url || "/placeholder.svg"}
                     alt={mentor.name}
                     className="w-16 h-16 rounded-full object-cover"
                   />
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold">{mentor.name}</h3>
                     <p className="text-muted-foreground">{mentor.title}</p>
-                    <p className="text-sm text-muted-foreground">{mentor.company}</p>
                     <div className="flex items-center gap-2 mt-2">
                       <div className="flex items-center">
-                        <span className="text-sm font-medium">{mentor.rating}</span>
+                        <span className="text-sm font-medium">{mentor.rating || 0}</span>
                         <div className="flex ml-1">
                           {[...Array(5)].map((_, i) => (
                             <span key={i} className="text-yellow-400">★</span>
                           ))}
                         </div>
                       </div>
-                      <span className="text-sm text-muted-foreground">({mentor.reviews} reviews)</span>
+                      <span className="text-sm text-muted-foreground">({mentor.total_reviews || 0} reviews)</span>
                     </div>
                   </div>
                 </div>
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-1">
-                    {mentor.expertise.map((skill, index) => (
+                    {mentor.expertise?.map((skill: string, index: number) => (
                       <Badge key={index} variant="secondary" className="text-xs">
                         {skill}
                       </Badge>
                     ))}
                   </div>
-                  <p className="text-sm text-muted-foreground">{mentor.responseTime}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Usually responds within {mentor.response_time_hours || 24} hours
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -283,10 +457,10 @@ const BookingPage = () => {
                   className="w-full" 
                   size="lg" 
                   onClick={handleBooking}
-                  disabled={!selectedDate || !selectedTime}
+                  disabled={!selectedDate || !selectedTime || booking}
                 >
                   <Check className="mr-2 h-4 w-4" />
-                  Confirm Booking
+                  {booking ? "Processing..." : "Confirm Booking"}
                 </Button>
               </CardContent>
             </Card>

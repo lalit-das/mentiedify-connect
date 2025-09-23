@@ -7,10 +7,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 const BecomeMentorPage = () => {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -101,10 +109,95 @@ const BecomeMentorPage = () => {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle form submission here
-    console.log("Form submitted:", formData);
+    
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to submit your mentor application.",
+        variant: "destructive",
+      });
+      navigate('/auth');
+      return;
+    }
+
+    setLoading(true);
+    
+    try {
+      // Check if user already has a mentor profile
+      const { data: existingMentor, error: checkError } = await supabase
+        .from('mentors')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
+
+      if (existingMentor) {
+        toast({
+          title: "Application Already Exists",
+          description: "You already have a mentor profile. Redirecting to your dashboard.",
+        });
+        navigate('/mentor-dashboard');
+        return;
+      }
+
+      // Parse expertise as array
+      const expertiseArray = formData.expertise
+        .split(',')
+        .map(item => item.trim())
+        .filter(item => item.length > 0);
+
+      // Create mentor profile
+      const { error: insertError } = await supabase
+        .from('mentors')
+        .insert({
+          user_id: user.id,
+          name: `${formData.firstName} ${formData.lastName}`,
+          title: formData.title,
+          bio: formData.bio,
+          expertise: expertiseArray,
+          hourly_rate: parseFloat(formData.hourlyRate),
+          years_experience: parseInt(formData.experience),
+          is_verified: false, // Requires admin approval
+          availability_status: 'pending_approval'
+        });
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      toast({
+        title: "Application Submitted!",
+        description: "Thank you for your interest in becoming a mentor. We'll review your application and get back to you soon.",
+      });
+
+      // Clear the form
+      setFormData({
+        firstName: "",
+        lastName: "",
+        email: "",
+        company: "",
+        title: "",
+        experience: "",
+        expertise: "",
+        hourlyRate: "",
+        bio: ""
+      });
+
+    } catch (error) {
+      console.error('Error submitting mentor application:', error);
+      toast({
+        title: "Submission Failed",
+        description: "There was an error submitting your application. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -320,10 +413,10 @@ const BecomeMentorPage = () => {
                         required
                       />
                     </div>
-                    <Button type="submit" className="w-full" size="lg">
-                      Submit Application
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
+                     <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                       {loading ? "Submitting..." : "Submit Application"}
+                       <ArrowRight className="ml-2 h-4 w-4" />
+                     </Button>
                   </form>
                 </CardContent>
               </Card>
@@ -378,10 +471,13 @@ const BecomeMentorPage = () => {
               Join our community of expert mentors and start sharing your knowledge today. 
               Your experience could be the key to someone's breakthrough.
             </p>
-            <Button size="lg" variant="secondary">
-              Start Your Application
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
+             <Button size="lg" variant="secondary" onClick={() => {
+               const applicationSection = document.getElementById('application-section');
+               applicationSection?.scrollIntoView({ behavior: 'smooth' });
+             }}>
+               Start Your Application
+               <ArrowRight className="ml-2 h-4 w-4" />
+             </Button>
           </div>
         </section>
       </main>

@@ -1,64 +1,146 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Calendar, Clock, BookOpen, MessageSquare, Star, Target, User, Video } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 const MenteeDashboard = () => {
-  const [upcomingSessions] = useState([
-    {
-      id: 1,
-      mentor: "Dr. Sarah Wilson",
-      time: "3:00 PM",
-      date: "Today",
-      topic: "Product Management Strategy",
-      type: "Video Call"
-    },
-    {
-      id: 2,
-      mentor: "John Rodriguez",
-      time: "10:00 AM",
-      date: "Friday",
-      topic: "Leadership Development",
-      type: "Voice Call"
-    }
-  ]);
-
-  const [completedSessions] = useState([
-    {
-      id: 1,
-      mentor: "Alex Chen",
-      date: "Last Monday",
-      topic: "Technical Skills Assessment",
-      rating: 5,
-      notes: "Great insights on system design"
-    },
-    {
-      id: 2,
-      mentor: "Maria Garcia",
-      date: "2 weeks ago",
-      topic: "Career Planning",
-      rating: 5,
-      notes: "Excellent guidance on career transitions"
-    }
-  ]);
-
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
+  const [completedSessions, setCompletedSessions] = useState<any[]>([]);
   const [learningGoals] = useState([
     { id: 1, goal: "Master Product Management", progress: 75, target: "3 months" },
     { id: 2, goal: "Improve Leadership Skills", progress: 45, target: "6 months" },
     { id: 3, goal: "Learn System Design", progress: 20, target: "4 months" }
   ]);
+  const [stats, setStats] = useState([
+    { title: "Sessions Completed", value: "0", icon: BookOpen },
+    { title: "Hours of Mentorship", value: "0", icon: Clock },
+    { title: "Active Mentors", value: "0", icon: User },
+    { title: "Average Rating Given", value: "0", icon: Star }
+  ]);
+  const [loading, setLoading] = useState(true);
 
-  const stats = [
-    { title: "Sessions Completed", value: "28", icon: BookOpen },
-    { title: "Hours of Mentorship", value: "42", icon: Clock },
-    { title: "Active Mentors", value: "5", icon: User },
-    { title: "Average Rating", value: "4.8", icon: Star }
-  ];
+  useEffect(() => {
+    if (user) {
+      fetchMenteeData();
+    }
+  }, [user]);
+
+  const fetchMenteeData = async () => {
+    try {
+      setLoading(true);
+
+      // Fetch upcoming bookings
+      const { data: upcomingData, error: upcomingError } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          mentors(name, title)
+        `)
+        .eq('mentee_id', user?.id)
+        .in('status', ['pending', 'confirmed'])
+        .gte('session_date', new Date().toISOString().split('T')[0])
+        .order('session_date', { ascending: true })
+        .order('session_time', { ascending: true });
+
+      if (upcomingError) {
+        throw upcomingError;
+      }
+
+      const formattedUpcoming = (upcomingData || []).map((booking: any) => ({
+        id: booking.id,
+        mentor: booking.mentors?.name || 'Unknown Mentor',
+        time: booking.session_time,
+        date: new Date(booking.session_date).toLocaleDateString(),
+        topic: booking.notes || 'General Mentoring Session',
+        type: booking.session_type === 'video' ? 'Video Call' : 
+              booking.session_type === 'audio' ? 'Audio Call' : 'Chat Session'
+      }));
+
+      setUpcomingSessions(formattedUpcoming);
+
+      // Fetch completed sessions
+      const { data: completedData, error: completedError } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          mentors(name, title),
+          reviews(rating, review_text)
+        `)
+        .eq('mentee_id', user?.id)
+        .eq('status', 'completed')
+        .order('session_date', { ascending: false })
+        .limit(10);
+
+      if (completedError) {
+        throw completedError;
+      }
+
+      const formattedCompleted = (completedData || []).map((booking: any) => ({
+        id: booking.id,
+        mentor: booking.mentors?.name || 'Unknown Mentor',
+        date: new Date(booking.session_date).toLocaleDateString(),
+        topic: booking.notes || 'General Mentoring Session',
+        rating: booking.reviews?.[0]?.rating || 0,
+        notes: booking.reviews?.[0]?.review_text || 'No review yet'
+      }));
+
+      setCompletedSessions(formattedCompleted);
+
+      // Calculate stats
+      const completedCount = completedData?.length || 0;
+      const totalHours = completedCount * 1; // Assuming 1 hour per session
+      
+      // Get unique mentors count
+      const uniqueMentors = new Set(completedData?.map(b => b.mentor_id)).size;
+      
+      // Calculate average rating given
+      const ratingsGiven = completedData?.map(b => b.reviews?.[0]?.rating).filter(r => r) || [];
+      const averageRating = ratingsGiven.length > 0 
+        ? (ratingsGiven.reduce((sum: number, rating: number) => sum + rating, 0) / ratingsGiven.length).toFixed(1)
+        : '0';
+
+      setStats([
+        { title: "Sessions Completed", value: completedCount.toString(), icon: BookOpen },
+        { title: "Hours of Mentorship", value: totalHours.toString(), icon: Clock },
+        { title: "Active Mentors", value: uniqueMentors.toString(), icon: User },
+        { title: "Average Rating Given", value: averageRating, icon: Star }
+      ]);
+
+    } catch (error) {
+      console.error('Error fetching mentee data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load dashboard data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -123,7 +205,9 @@ const MenteeDashboard = () => {
                       </div>
                     </div>
                   ))}
-                  <Button className="w-full" variant="outline">Book New Session</Button>
+                   <Button className="w-full" variant="outline" onClick={() => window.location.href = '/explore'}>
+                     Book New Session
+                   </Button>
                 </CardContent>
               </Card>
 
@@ -134,10 +218,10 @@ const MenteeDashboard = () => {
                   <CardDescription>Manage your learning journey</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <Button className="w-full justify-start" variant="outline">
-                    <User className="mr-2 h-4 w-4" />
-                    Find New Mentors
-                  </Button>
+                   <Button className="w-full justify-start" variant="outline" onClick={() => window.location.href = '/explore'}>
+                     <User className="mr-2 h-4 w-4" />
+                     Find New Mentors
+                   </Button>
                   <Button className="w-full justify-start" variant="outline">
                     <Target className="mr-2 h-4 w-4" />
                     Set Learning Goals

@@ -1,55 +1,197 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Calendar, Clock, DollarSign, Star, Users, Video, MessageSquare, Settings } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 const MentorDashboard = () => {
-  const [upcomingSessions] = useState([
-    {
-      id: 1,
-      mentee: "Sarah Johnson",
-      time: "2:00 PM",
-      date: "Today",
-      topic: "Career Transition Strategy",
-      type: "Video Call"
-    },
-    {
-      id: 2,
-      mentee: "Michael Chen",
-      time: "4:30 PM",
-      date: "Tomorrow",
-      topic: "Technical Interview Prep",
-      type: "Voice Call"
-    }
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [mentorProfile, setMentorProfile] = useState<any>(null);
+  const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
+  const [recentMessages, setRecentMessages] = useState<any[]>([]);
+  const [stats, setStats] = useState([
+    { title: "Total Sessions", value: "0", icon: Video, change: "+0%" },
+    { title: "Average Rating", value: "0", icon: Star, change: "+0" },
+    { title: "Active Mentees", value: "0", icon: Users, change: "+0" },
+    { title: "Monthly Earnings", value: "$0", icon: DollarSign, change: "+0%" }
   ]);
+  const [loading, setLoading] = useState(true);
 
-  const [recentMessages] = useState([
-    {
-      id: 1,
-      from: "Emma Wilson",
-      message: "Thank you for the great session yesterday!",
-      time: "2 hours ago",
-      unread: true
-    },
-    {
-      id: 2,
-      from: "David Kumar",
-      message: "Can we reschedule our Friday meeting?",
-      time: "1 day ago",
-      unread: false
+  useEffect(() => {
+    if (user) {
+      fetchMentorData();
     }
-  ]);
+  }, [user]);
 
-  const stats = [
-    { title: "Total Sessions", value: "147", icon: Video, change: "+12%" },
-    { title: "Average Rating", value: "4.9", icon: Star, change: "+0.1" },
-    { title: "Active Mentees", value: "23", icon: Users, change: "+3" },
-    { title: "Monthly Earnings", value: "$2,840", icon: DollarSign, change: "+18%" }
-  ];
+  const fetchMentorData = async () => {
+    try {
+      setLoading(true);
+
+      // Fetch mentor profile
+      const { data: mentorData, error: mentorError } = await supabase
+        .from('mentors')
+        .select('*')
+        .eq('user_id', user?.id)
+        .single();
+
+      if (mentorError && mentorError.code !== 'PGRST116') {
+        throw mentorError;
+      }
+
+      if (!mentorData) {
+        // User is not a mentor yet
+        toast({
+          title: "Mentor Profile Not Found",
+          description: "Please complete your mentor application first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setMentorProfile(mentorData);
+
+      // Fetch upcoming bookings
+      const { data: bookingsData, error: bookingsError } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          users!bookings_mentee_id_fkey(first_name, last_name)
+        `)
+        .eq('mentor_id', mentorData.id)
+        .eq('status', 'confirmed')
+        .gte('session_date', new Date().toISOString().split('T')[0])
+        .order('session_date', { ascending: true })
+        .order('session_time', { ascending: true })
+        .limit(5);
+
+      if (bookingsError) {
+        throw bookingsError;
+      }
+
+      const formattedBookings = (bookingsData || []).map((booking: any) => ({
+        id: booking.id,
+        mentee: `${booking.users?.first_name} ${booking.users?.last_name}`,
+        time: booking.session_time,
+        date: new Date(booking.session_date).toLocaleDateString(),
+        topic: booking.notes || 'General Mentoring Session',
+        type: booking.session_type === 'video' ? 'Video Call' : 
+              booking.session_type === 'audio' ? 'Audio Call' : 'Chat Session'
+      }));
+
+      setUpcomingSessions(formattedBookings);
+
+      // Fetch recent messages
+      const { data: messagesData, error: messagesError } = await supabase
+        .from('messages')
+        .select(`
+          *,
+          users!messages_sender_id_fkey(first_name, last_name)
+        `)
+        .eq('recipient_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (messagesError) {
+        throw messagesError;
+      }
+
+      const formattedMessages = (messagesData || []).map((message: any) => ({
+        id: message.id,
+        from: `${message.users?.first_name} ${message.users?.last_name}`,
+        message: message.content,
+        time: new Date(message.created_at).toLocaleDateString(),
+        unread: !message.is_read
+      }));
+
+      setRecentMessages(formattedMessages);
+
+      // Calculate stats
+      const { data: totalBookings } = await supabase
+        .from('bookings')
+        .select('id', { count: 'exact' })
+        .eq('mentor_id', mentorData.id)
+        .eq('status', 'completed');
+
+      const totalSessions = totalBookings?.length || 0;
+      const rating = mentorData.rating || 0;
+      const totalReviews = mentorData.total_reviews || 0;
+      
+      // Calculate monthly earnings (simplified)
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const { data: monthlyBookings } = await supabase
+        .from('bookings')
+        .select('price')
+        .eq('mentor_id', mentorData.id)
+        .eq('status', 'completed')
+        .gte('session_date', currentMonth + '-01');
+
+      const monthlyEarnings = (monthlyBookings || []).reduce((sum: number, booking: any) => sum + (booking.price || 0), 0);
+
+      // Get unique mentee count
+      const { data: uniqueMentees } = await supabase
+        .from('bookings')
+        .select('mentee_id')
+        .eq('mentor_id', mentorData.id);
+
+      const activeMentees = new Set(uniqueMentees?.map(b => b.mentee_id)).size;
+
+      setStats([
+        { title: "Total Sessions", value: totalSessions.toString(), icon: Video, change: "+12%" },
+        { title: "Average Rating", value: rating.toFixed(1), icon: Star, change: "+0.1" },
+        { title: "Active Mentees", value: activeMentees.toString(), icon: Users, change: "+3" },
+        { title: "Monthly Earnings", value: `$${monthlyEarnings}`, icon: DollarSign, change: "+18%" }
+      ]);
+
+    } catch (error) {
+      console.error('Error fetching mentor data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load dashboard data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (!mentorProfile) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-8">
+          <div className="text-center py-12">
+            <h2 className="text-2xl font-bold mb-2">Complete Your Mentor Profile</h2>
+            <p className="text-muted-foreground mb-4">You need to complete your mentor application to access the dashboard.</p>
+            <Button onClick={() => window.location.href = '/become-mentor'}>
+              Complete Application
+            </Button>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

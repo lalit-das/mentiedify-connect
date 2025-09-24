@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,162 +7,165 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Filter, Star, MapPin, Calendar, Award, Heart } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/components/ui/use-toast";
 
-const mentors = [
-  {
-    id: 1,
-    name: "Sarah Chen",
-    title: "Senior Software Engineer",
-    company: "Google",
-    image: "https://images.unsplash.com/photo-1494790108755-2616b612b526?w=150&h=150&fit=crop&crop=face",
-    rating: 4.9,
-    reviews: 247,
-    price: 120,
-    location: "San Francisco, CA",
-    expertise: ["React", "Node.js", "System Design", "Career Growth"],
-    verified: true,
-    category: "Technology",
-    experience: "10+ years",
-    description: "10+ years of experience building scalable web applications. Specialized in helping developers transition to senior roles.",
-    availability: "Available this week"
-  },
-  {
-    id: 2,
-    name: "Marcus Johnson",
-    title: "VP of Product",
-    company: "Stripe",
-    image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face",
-    rating: 4.8,
-    reviews: 189,
-    price: 200,
-    location: "New York, NY",
-    expertise: ["Product Strategy", "Leadership", "Go-to-Market", "Analytics"],
-    verified: true,
-    category: "Business",
-    experience: "12+ years",
-    description: "Led product teams from 0 to 100M+ users. Expert in product-market fit and scaling strategies.",
-    availability: "Available next week"
-  },
-  {
-    id: 3,
-    name: "Emily Rodriguez",
-    title: "Design Director",
-    company: "Airbnb",
-    image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face",
-    rating: 5.0,
-    reviews: 156,
-    price: 150,
-    location: "San Francisco, CA",
-    expertise: ["UX Design", "Design Systems", "User Research", "Team Leadership"],
-    verified: true,
-    category: "Design",
-    experience: "8+ years",
-    description: "Award-winning designer with expertise in creating user-centered experiences for global platforms.",
-    availability: "Available today"
-  },
-  {
-    id: 4,
-    name: "David Park",
-    title: "Startup Founder & CEO",
-    company: "TechVenture (Acquired)",
-    image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face",
-    rating: 4.7,
-    reviews: 203,
-    price: 180,
-    location: "Austin, TX",
-    expertise: ["Entrepreneurship", "Fundraising", "Business Strategy", "Team Building"],
-    verified: true,
-    category: "Business",
-    experience: "15+ years",
-    description: "Successfully built and exited 2 startups. Now helping entrepreneurs navigate the startup journey.",
-    availability: "Available this week"
-  },
-  {
-    id: 5,
-    name: "Dr. Rachel Kim",
-    title: "Clinical Psychologist",
-    company: "Stanford Health",
-    image: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=150&h=150&fit=crop&crop=face",
-    rating: 4.9,
-    reviews: 134,
-    price: 100,
-    location: "Palo Alto, CA",
-    expertise: ["Mental Health", "Wellness Coaching", "Stress Management", "Work-Life Balance"],
-    verified: true,
-    category: "Health",
-    experience: "7+ years",
-    description: "Licensed clinical psychologist specializing in professional wellness and mental health strategies.",
-    availability: "Available this week"
-  },
-  {
-    id: 6,
-    name: "Prof. James Wilson",
-    title: "Computer Science Professor",
-    company: "MIT",
-    image: "https://images.unsplash.com/photo-1556157382-97eda2d62296?w=150&h=150&fit=crop&crop=face",
-    rating: 4.8,
-    reviews: 98,
-    price: 80,
-    location: "Cambridge, MA",
-    expertise: ["Research", "Academic Writing", "PhD Guidance", "Publications"],
-    verified: true,
-    category: "Academics",
-    experience: "20+ years",
-    description: "Tenured professor with 50+ publications. Helps students and researchers navigate academic careers.",
-    availability: "Available next week"
-  }
-];
+interface Mentor {
+  id: string;
+  name: string;
+  title: string;
+  bio?: string;
+  hourly_rate: number;
+  rating: number;
+  total_reviews: number;
+  expertise: string[];
+  profile_image_url?: string;
+  is_verified: boolean;
+  years_experience: number;
+  availability_status: string;
+  session_types: string[];
+}
 
 const ExploreMentors = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  const [mentors, setMentors] = useState<Mentor[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [priceRange, setPriceRange] = useState("all");
   const [sortBy, setSortBy] = useState("rating");
-  const [favorites, setFavorites] = useState<number[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetchMentors();
+  }, []);
+
+  const fetchMentors = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('mentors')
+        .select('*')
+        .order('rating', { ascending: false });
+
+      if (error) throw error;
+      setMentors(data || []);
+    } catch (error) {
+      console.error('Error fetching mentors:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load mentors. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const categories = [
     { value: "all", label: "All Categories" },
     { value: "Technology", label: "Technology" },
     { value: "Business", label: "Business" },
     { value: "Design", label: "Design" },
-    { value: "Health", label: "Health & Wellness" },
-    { value: "Academics", label: "Academics" }
+    { value: "Marketing", label: "Marketing" },
+    { value: "Finance", label: "Finance" }
   ];
 
   const priceRanges = [
     { value: "all", label: "All Prices" },
-    { value: "0-100", label: "$0 - $100" },
-    { value: "100-150", label: "$100 - $150" },
-    { value: "150-200", label: "$150 - $200" },
+    { value: "0-50", label: "$0 - $50" },
+    { value: "50-100", label: "$50 - $100" },
+    { value: "100-200", label: "$100 - $200" },
     { value: "200+", label: "$200+" }
   ];
 
   const filteredMentors = mentors.filter(mentor => {
-    if (searchQuery && !mentor.name.toLowerCase().includes(searchQuery.toLowerCase()) && 
-        !mentor.expertise.some(skill => skill.toLowerCase().includes(searchQuery.toLowerCase()))) {
-      return false;
-    }
-    if (selectedCategory !== "all" && mentor.category !== selectedCategory) {
-      return false;
-    }
-    if (priceRange !== "all") {
-      const [min, max] = priceRange.split("-").map(p => p.replace("+", ""));
-      if (max) {
-        if (mentor.price < parseInt(min) || mentor.price > parseInt(max)) return false;
-      } else {
-        if (mentor.price < parseInt(min)) return false;
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesName = mentor.name.toLowerCase().includes(query);
+      const matchesTitle = mentor.title?.toLowerCase().includes(query);
+      const matchesExpertise = mentor.expertise?.some(skill => 
+        skill.toLowerCase().includes(query)
+      );
+      
+      if (!matchesName && !matchesTitle && !matchesExpertise) {
+        return false;
       }
     }
+
+    // Category filter (simplified - using expertise for now)
+    if (selectedCategory !== "all") {
+      const hasCategory = mentor.expertise?.some(skill => 
+        skill.toLowerCase().includes(selectedCategory.toLowerCase())
+      );
+      if (!hasCategory) return false;
+    }
+
+    // Price filter
+    if (priceRange !== "all") {
+      const [min, max] = priceRange.split("-").map(p => p.replace("+", ""));
+      const rate = mentor.hourly_rate || 0;
+      
+      if (max) {
+        if (rate < parseInt(min) || rate > parseInt(max)) return false;
+      } else {
+        if (rate < parseInt(min)) return false;
+      }
+    }
+
     return true;
   });
 
-  const toggleFavorite = (mentorId: number) => {
+  // Sort mentors
+  const sortedMentors = [...filteredMentors].sort((a, b) => {
+    switch (sortBy) {
+      case 'rating':
+        return (b.rating || 0) - (a.rating || 0);
+      case 'price-low':
+        return (a.hourly_rate || 0) - (b.hourly_rate || 0);
+      case 'price-high':
+        return (b.hourly_rate || 0) - (a.hourly_rate || 0);
+      case 'reviews':
+        return (b.total_reviews || 0) - (a.total_reviews || 0);
+      default:
+        return 0;
+    }
+  });
+
+  const toggleFavorite = (mentorId: string) => {
     setFavorites(prev => 
       prev.includes(mentorId) 
         ? prev.filter(id => id !== mentorId)
         : [...prev, mentorId]
     );
   };
+
+  const handleBookSession = (mentorId: string) => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to book a session.",
+      });
+      navigate('/auth');
+      return;
+    }
+    navigate(`/booking?mentor=${mentorId}`);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading mentors...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -238,13 +242,13 @@ const ExploreMentors = () => {
           {/* Results Count */}
           <div className="mb-6">
             <p className="text-muted-foreground">
-              Showing {filteredMentors.length} mentors
+              Showing {sortedMentors.length} mentors
             </p>
           </div>
 
           {/* Mentors Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {filteredMentors.map((mentor, index) => (
+            {sortedMentors.map((mentor, index) => (
               <Card 
                 key={mentor.id}
                 className="group hover:shadow-xl transition-all duration-300 hover:-translate-y-2 cursor-pointer bg-gradient-card border-0 overflow-hidden animate-scale-in"
@@ -266,11 +270,11 @@ const ExploreMentors = () => {
 
                   <div className="relative mx-auto">
                     <img 
-                      src={mentor.image} 
+                      src={mentor.profile_image_url || `https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face`} 
                       alt={mentor.name}
                       className="w-24 h-24 rounded-full object-cover mx-auto mb-4 ring-4 ring-primary/10 group-hover:ring-primary/30 transition-all duration-300"
                     />
-                    {mentor.verified && (
+                    {mentor.is_verified && (
                       <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-success rounded-full flex items-center justify-center ring-4 ring-white">
                         <Award className="h-4 w-4 text-white" />
                       </div>
@@ -282,7 +286,7 @@ const ExploreMentors = () => {
                       {mentor.name}
                     </h3>
                     <p className="text-sm text-muted-foreground mb-1">{mentor.title}</p>
-                    <p className="text-sm font-medium text-primary">{mentor.company}</p>
+                    <p className="text-sm font-medium text-primary">{mentor.years_experience}+ years experience</p>
                   </div>
                 </CardHeader>
 
@@ -290,29 +294,28 @@ const ExploreMentors = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1">
                       <Star className="h-4 w-4 text-yellow-500 fill-current" />
-                      <span className="font-medium">{mentor.rating}</span>
-                      <span className="text-sm text-muted-foreground">({mentor.reviews} reviews)</span>
+                      <span className="font-medium">{mentor.rating?.toFixed(1) || '0.0'}</span>
+                      <span className="text-sm text-muted-foreground">({mentor.total_reviews || 0} reviews)</span>
                     </div>
-                    <span className="text-lg font-bold text-primary">${mentor.price}/hr</span>
+                    <span className="text-lg font-bold text-primary">${mentor.hourly_rate || 0}/hr</span>
                   </div>
 
                   <div className="space-y-2">
                     <div className="flex items-center text-sm text-muted-foreground">
-                      <MapPin className="h-3 w-3 mr-1" />
-                      <span>{mentor.location}</span>
+                      <span className="capitalize">{mentor.availability_status}</span>
                     </div>
                     <div className="text-sm text-success font-medium">
-                      {mentor.availability}
+                      {mentor.session_types?.join(', ') || 'Multiple session types available'}
                     </div>
                   </div>
 
                   <div className="flex flex-wrap gap-1">
-                    {mentor.expertise.slice(0, 3).map((skill) => (
+                    {mentor.expertise?.slice(0, 3).map((skill) => (
                       <Badge key={skill} variant="secondary" className="text-xs">
                         {skill}
                       </Badge>
-                    ))}
-                    {mentor.expertise.length > 3 && (
+                    )) || []}
+                    {mentor.expertise && mentor.expertise.length > 3 && (
                       <Badge variant="outline" className="text-xs">
                         +{mentor.expertise.length - 3}
                       </Badge>
@@ -320,13 +323,14 @@ const ExploreMentors = () => {
                   </div>
 
                   <p className="text-sm text-muted-foreground line-clamp-2">
-                    {mentor.description}
+                    {mentor.bio || 'Professional mentor ready to help you achieve your goals.'}
                   </p>
 
                   <div className="flex space-x-2">
                     <Button 
                       className="flex-1 bg-gradient-primary hover:opacity-90 transition-opacity"
                       size="sm"
+                      onClick={() => handleBookSession(mentor.id)}
                     >
                       <Calendar className="h-4 w-4 mr-2" />
                       Book Session
@@ -335,6 +339,7 @@ const ExploreMentors = () => {
                       variant="outline" 
                       size="sm"
                       className="border-primary text-primary hover:bg-primary hover:text-white"
+                      onClick={() => navigate(`/mentor/${mentor.id}`)}
                     >
                       View Profile
                     </Button>

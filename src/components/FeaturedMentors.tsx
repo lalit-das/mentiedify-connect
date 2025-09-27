@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 
 interface Mentor {
-  id: string;
+    id: strxing;
   name: string;
   title: string;
   bio?: string;

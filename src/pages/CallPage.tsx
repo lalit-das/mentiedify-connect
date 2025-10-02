@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { 
   Mic, 
   MicOff, 
@@ -11,7 +11,8 @@ import {
   Settings, 
   MoreVertical,
   Clock,
-  Users
+  Users,
+  Loader2
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,12 +20,18 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { useWebRTC } from "@/hooks/useWebRTC";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const CallPage = () => {
   const { sessionId } = useParams();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-  const [isCallActive, setIsCallActive] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [showChat, setShowChat] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
@@ -35,6 +42,37 @@ const CallPage = () => {
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Determine if current user is the initiator
+  const isInitiator = searchParams.get('initiator') === 'true';
+
+  // WebRTC hook
+  const {
+    localStream,
+    remoteStream,
+    isConnecting,
+    isConnected,
+    error: webrtcError,
+    startCall: startWebRTCCall,
+    endCall: endWebRTCCall,
+    toggleAudio: toggleWebRTCAudio,
+    toggleVideo: toggleWebRTCVideo,
+  } = useWebRTC({
+    sessionId: sessionId || 'default',
+    isInitiator,
+    onRemoteStream: (stream) => {
+      console.log('Remote stream received');
+    },
+    onConnectionStateChange: (state) => {
+      console.log('Connection state changed:', state);
+      if (state === 'connected') {
+        toast({
+          title: "Connected",
+          description: "Call connected successfully",
+        });
+      }
+    }
+  });
 
   // Mock session data
   const session = {
@@ -54,15 +92,42 @@ const CallPage = () => {
     sessionType: "video"
   };
 
+  // Update video elements when streams change
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
+  // Call duration timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isCallActive) {
+    if (isConnected) {
       interval = setInterval(() => {
         setCallDuration(prev => prev + 1);
       }, 1000);
+    } else {
+      setCallDuration(0);
     }
     return () => clearInterval(interval);
-  }, [isCallActive]);
+  }, [isConnected]);
+
+  // Show WebRTC errors
+  useEffect(() => {
+    if (webrtcError) {
+      toast({
+        title: "Call Error",
+        description: webrtcError,
+        variant: "destructive",
+      });
+    }
+  }, [webrtcError, toast]);
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -71,22 +136,39 @@ const CallPage = () => {
   };
 
   const toggleAudio = () => {
-    setIsAudioEnabled(!isAudioEnabled);
+    const newState = !isAudioEnabled;
+    setIsAudioEnabled(newState);
+    toggleWebRTCAudio(newState);
   };
 
   const toggleVideo = () => {
-    setIsVideoEnabled(!isVideoEnabled);
+    const newState = !isVideoEnabled;
+    setIsVideoEnabled(newState);
+    toggleWebRTCVideo(newState);
   };
 
-  const startCall = () => {
-    setIsCallActive(true);
-    // WebRTC call initiation logic would go here
+  const startCall = async () => {
+    try {
+      await startWebRTCCall();
+      toast({
+        title: "Joining Call",
+        description: "Connecting to the session...",
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to Start Call",
+        description: "Please check your camera and microphone permissions",
+        variant: "destructive",
+      });
+    }
   };
 
   const endCall = () => {
-    setIsCallActive(false);
-    setCallDuration(0);
-    // WebRTC call termination logic would go here
+    endWebRTCCall();
+    toast({
+      title: "Call Ended",
+      description: "The call has been terminated",
+    });
   };
 
   const sendMessage = () => {
@@ -128,10 +210,16 @@ const CallPage = () => {
               <div className="text-sm text-muted-foreground">Session Topic</div>
               <div className="font-medium">{session.topic}</div>
             </div>
-            {isCallActive && (
+            {isConnected && (
               <div className="flex items-center space-x-2 text-sm">
                 <Clock className="h-4 w-4" />
                 <span>{formatDuration(callDuration)}</span>
+              </div>
+            )}
+            {isConnecting && (
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Connecting...</span>
               </div>
             )}
             <Button variant="ghost" size="sm">
@@ -145,7 +233,7 @@ const CallPage = () => {
       <div className="flex-1 flex">
         {/* Video Area */}
         <div className="flex-1 relative bg-slate-900">
-          {!isCallActive ? (
+          {!isConnected && !isConnecting ? (
             // Pre-call UI
             <div className="h-full flex items-center justify-center">
               <Card className="w-96">
@@ -187,9 +275,18 @@ const CallPage = () => {
                     </div>
                   </div>
                   
-                  <Button onClick={startCall} className="w-full" size="lg">
-                    <Video className="mr-2 h-4 w-4" />
-                    Join Call
+                  <Button onClick={startCall} className="w-full" size="lg" disabled={isConnecting}>
+                    {isConnecting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Video className="mr-2 h-4 w-4" />
+                        Join Call
+                      </>
+                    )}
                   </Button>
                 </CardContent>
               </Card>
@@ -327,7 +424,7 @@ const CallPage = () => {
             <Settings className="h-5 w-5" />
           </Button>
           
-          {isCallActive ? (
+          {isConnected ? (
             <Button
               variant="destructive"
               size="lg"
@@ -342,8 +439,9 @@ const CallPage = () => {
               size="lg"
               onClick={startCall}
               className="rounded-full p-4"
+              disabled={isConnecting}
             >
-              <Phone className="h-5 w-5" />
+              {isConnecting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Phone className="h-5 w-5" />}
             </Button>
           )}
         </div>

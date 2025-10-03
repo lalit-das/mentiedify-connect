@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { Calendar, Clock, Video, Phone, MessageSquare, ArrowLeft, Check } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,8 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 const BookingPage = () => {
-  const { mentorId } = useParams();
+  const [searchParams] = useSearchParams();
+  const mentorId = searchParams.get('mentor');
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();

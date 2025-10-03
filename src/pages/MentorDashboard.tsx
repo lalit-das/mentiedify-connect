@@ -30,6 +30,63 @@ const MentorDashboard = () => {
     }
   }, [user]);
 
+  const handleJoinCall = async (bookingId: string) => {
+    try {
+      // Get booking details
+      const { data: booking } = await supabase
+        .from('bookings')
+        .select('mentor_id, mentee_id')
+        .eq('id', bookingId)
+        .single();
+
+      if (!booking) {
+        throw new Error('Booking not found');
+      }
+
+      // Find or create call session
+      const { data: existingSession } = await supabase
+        .from('call_sessions')
+        .select('id, caller_id')
+        .eq('booking_id', bookingId)
+        .single();
+
+      let sessionId = existingSession?.id;
+      let isInitiator = false;
+
+      if (!sessionId) {
+        // Create new session (mentor as initiator)
+        const { data: newSession, error: sessionError } = await supabase
+          .from('call_sessions')
+          .insert({
+            booking_id: bookingId,
+            caller_id: booking.mentor_id,
+            callee_id: booking.mentee_id,
+            call_type: 'video',
+            status: 'initiated'
+          })
+          .select('id')
+          .single();
+
+        if (sessionError) throw sessionError;
+        sessionId = newSession.id;
+        isInitiator = true;
+      } else {
+        // Check if mentor is the caller
+        isInitiator = existingSession.caller_id === user?.id;
+      }
+
+      // Navigate to call page
+      window.location.href = `/call/${sessionId}?initiator=${isInitiator}`;
+    } catch (error) {
+      console.error('Error joining call:', error);
+      toast({
+        title: "Error",
+        description: "Failed to join call. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const fetchMentorData = async () => {
     try {
       setLoading(true);
@@ -254,7 +311,7 @@ const MentorDashboard = () => {
                         <Badge variant="outline">{session.type}</Badge>
                         <div className="flex gap-2">
                           <Button size="sm" variant="outline">Reschedule</Button>
-                          <Button size="sm">Join Call</Button>
+                          <Button size="sm" onClick={() => handleJoinCall(session.id)}>Join Call</Button>
                         </div>
                       </div>
                     </div>

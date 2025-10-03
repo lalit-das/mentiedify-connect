@@ -382,32 +382,41 @@ const BookingPage = () => {
                 <CardDescription>Choose your preferred session date and time</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {availableSlots.map((daySlot) => (
-                  <div key={daySlot.date} className="space-y-2">
-                    <h4 className="font-medium">
-                      {new Date(daySlot.date).toLocaleDateString('en-US', { 
-                        weekday: 'long', 
-                        month: 'long', 
-                        day: 'numeric' 
-                      })}
-                    </h4>
-                    <div className="grid grid-cols-4 gap-2">
-                      {daySlot.slots.map((time) => (
-                        <Button
-                          key={`${daySlot.date}-${time}`}
-                          variant={selectedDate === daySlot.date && selectedTime === time ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => {
-                            setSelectedDate(daySlot.date);
-                            setSelectedTime(time);
-                          }}
-                        >
-                          {time}
-                        </Button>
-                      ))}
-                    </div>
+                {availableSlots.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-muted-foreground">
+                      This mentor hasn't set up their availability yet. Please check back later or contact them directly.
+                    </p>
                   </div>
-                ))}
+                ) : (
+                  availableSlots.map((daySlot) => (
+                    <div key={daySlot.date} className="space-y-2">
+                      <h4 className="font-medium">
+                        {new Date(daySlot.date).toLocaleDateString('en-US', { 
+                          weekday: 'long', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}
+                      </h4>
+                      <div className="grid grid-cols-4 gap-2">
+                        {daySlot.slots.map((time) => (
+                          <Button
+                            key={`${daySlot.date}-${time}`}
+                            variant={selectedDate === daySlot.date && selectedTime === time ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => {
+                              setSelectedDate(daySlot.date);
+                              setSelectedTime(time);
+                            }}
+                          >
+                            {time}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
               </CardContent>
             </Card>
 

@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const CallPage = () => {
   const { sessionId } = useParams();
@@ -35,10 +36,9 @@ const CallPage = () => {
   const [callDuration, setCallDuration] = useState(0);
   const [showChat, setShowChat] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
-  const [chatMessages, setChatMessages] = useState([
-    { id: 1, sender: "Dr. Sarah Wilson", message: "Hi! Ready to start our session?", timestamp: "2:00 PM", isMe: false },
-    { id: 2, sender: "You", message: "Yes, I'm ready! Looking forward to discussing product strategy.", timestamp: "2:01 PM", isMe: true }
-  ]);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [sessionData, setSessionData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -74,23 +74,73 @@ const CallPage = () => {
     }
   });
 
-  // Mock session data
-  const session = {
-    id: sessionId,
-    mentor: {
-      name: "Dr. Sarah Wilson",
-      title: "Senior Product Manager",
-      company: "Google",
-      avatar: "/placeholder.svg"
-    },
-    mentee: {
-      name: "Alex Johnson",
-      avatar: "/placeholder.svg"
-    },
-    topic: "Product Strategy & Stakeholder Management",
-    scheduledTime: "2:00 PM - 3:00 PM PST",
-    sessionType: "video"
-  };
+  // Fetch session data
+  useEffect(() => {
+    const fetchSessionData = async () => {
+      if (!sessionId) return;
+      
+      try {
+        // Get call session with booking and mentor details
+        const { data: callSession, error: sessionError } = await supabase
+          .from('call_sessions')
+          .select('*')
+          .eq('id', sessionId)
+          .single();
+
+        if (sessionError) throw sessionError;
+
+        // Get booking with mentor and mentee details
+        const { data: booking, error: bookingError } = await supabase
+          .from('bookings')
+          .select(`
+            *,
+            mentor:mentor_id (
+              id,
+              name,
+              title,
+              profile_image_url
+            ),
+            mentee:mentee_id (
+              id,
+              first_name,
+              last_name,
+              avatar
+            )
+          `)
+          .eq('id', callSession.booking_id)
+          .single();
+
+        if (bookingError) throw bookingError;
+
+        setSessionData({
+          id: sessionId,
+          mentor: {
+            name: booking.mentor.name,
+            title: booking.mentor.title,
+            avatar: booking.mentor.profile_image_url || "/placeholder.svg"
+          },
+          mentee: {
+            name: `${booking.mentee.first_name} ${booking.mentee.last_name}`,
+            avatar: booking.mentee.avatar || "/placeholder.svg"
+          },
+          topic: booking.topic || "Mentorship Session",
+          scheduledTime: `${booking.session_date} ${booking.session_time}`,
+          sessionType: booking.session_type || "video"
+        });
+      } catch (error) {
+        console.error('Error fetching session data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load session details",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSessionData();
+  }, [sessionId, toast]);
 
   // Update video elements when streams change
   useEffect(() => {
@@ -185,6 +235,14 @@ const CallPage = () => {
     }
   };
 
+  if (loading || !sessionData) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -193,22 +251,22 @@ const CallPage = () => {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3">
               <img
-                src={session.mentor.avatar}
-                alt={session.mentor.name}
+                src={sessionData.mentor.avatar}
+                alt={sessionData.mentor.name}
                 className="w-10 h-10 rounded-full object-cover"
               />
               <div>
-                <h2 className="font-semibold">{session.mentor.name}</h2>
-                <p className="text-sm text-muted-foreground">{session.mentor.title}</p>
+                <h2 className="font-semibold">{sessionData.mentor.name}</h2>
+                <p className="text-sm text-muted-foreground">{sessionData.mentor.title}</p>
               </div>
             </div>
-            <Badge variant="outline">{session.sessionType} call</Badge>
+            <Badge variant="outline">{sessionData.sessionType} call</Badge>
           </div>
           
           <div className="flex items-center space-x-4">
             <div className="text-center">
               <div className="text-sm text-muted-foreground">Session Topic</div>
-              <div className="font-medium">{session.topic}</div>
+              <div className="font-medium">{sessionData.topic}</div>
             </div>
             {isConnected && (
               <div className="flex items-center space-x-2 text-sm">
@@ -240,16 +298,16 @@ const CallPage = () => {
                 <CardHeader className="text-center">
                   <div className="flex items-center justify-center space-x-4 mb-4">
                     <img
-                      src={session.mentor.avatar}
-                      alt={session.mentor.name}
+                      src={sessionData.mentor.avatar}
+                      alt={sessionData.mentor.name}
                       className="w-16 h-16 rounded-full object-cover"
                     />
                     <div>
-                      <CardTitle>{session.mentor.name}</CardTitle>
-                      <p className="text-muted-foreground">{session.mentor.company}</p>
+                      <CardTitle>{sessionData.mentor.name}</CardTitle>
+                      <p className="text-muted-foreground">{sessionData.mentor.title}</p>
                     </div>
                   </div>
-                  <Badge variant="secondary">{session.scheduledTime}</Badge>
+                  <Badge variant="secondary">{sessionData.scheduledTime}</Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-center">
@@ -323,7 +381,7 @@ const CallPage = () => {
               <div className="absolute top-4 left-4 bg-black/50 text-white px-3 py-2 rounded-lg">
                 <div className="flex items-center space-x-2">
                   <Users className="h-4 w-4" />
-                  <span className="text-sm">{session.mentor.name}</span>
+                  <span className="text-sm">{sessionData.mentor.name}</span>
                 </div>
               </div>
             </div>

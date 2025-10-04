@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
+import { CallNotification } from "./components/CallNotification";
 import Index from "./pages/Index";
 import ExploreMentors from "./pages/ExploreMentors";
 import MentorDashboard from "./pages/MentorDashboard";
@@ -27,6 +28,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <CallNotification />
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />

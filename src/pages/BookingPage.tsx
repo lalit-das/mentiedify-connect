@@ -173,7 +173,7 @@ const BookingPage = () => {
         : `${selectedTime}:00:00`;
 
       const { error } = await supabase.from("bookings").insert({
-        mentor_id: mentor.user_id,
+        mentor_id: mentorId,
         mentee_id: user.id,
         session_date: selectedDate,
         session_time: timeFormatted,

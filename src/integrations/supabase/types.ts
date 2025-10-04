@@ -78,7 +78,7 @@ export type Database = {
             foreignKeyName: "bookings_mentor_id_fkey"
             columns: ["mentor_id"]
             isOneToOne: false
-            referencedRelation: "users"
+            referencedRelation: "mentors"
             referencedColumns: ["id"]
           },
         ]

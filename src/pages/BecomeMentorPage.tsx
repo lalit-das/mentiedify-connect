@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ArrowRight, Star, Users, DollarSign, Clock } from "lucide-react";
+import { Check, ArrowRight, Star, Users, DollarSign, Clock, User, Mail, Briefcase, GraduationCap, Globe, Award, ChevronRight, AlertCircle, Sparkles } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,28 +7,47 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+interface FormData {
+  name: string;
+  title: string;
+  bio: string;
+  expertise: string[];
+  hourlyRate: string;
+  yearsExperience: string;
+  languages: string[];
+  videoIntroUrl: string;
+}
+
+const expertiseOptions = [
+  "Software Development", "Web Development", "Mobile Development",
+  "Data Science", "Machine Learning", "AI",
+  "Cloud Computing", "DevOps", "Cybersecurity",
+  "Product Management", "UI/UX Design", "Business Strategy",
+  "Marketing", "Sales", "Leadership", "Finance", "HR"
+];
+
+const languageOptions = [
+  "English", "Spanish", "French", "German", "Chinese",
+  "Japanese", "Korean", "Portuguese", "Italian", "Russian"
+];
 
 const BecomeMentorPage = () => {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const navigate = useNavigate();
+  const [showApplicationForm, setShowApplicationForm] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    company: "",
+  const [formData, setFormData] = useState<FormData>({
+    name: "",
     title: "",
-    experience: "",
-    expertise: "",
+    bio: "",
+    expertise: [],
     hourlyRate: "",
-    bio: ""
+    yearsExperience: "",
+    languages: ["English"],
+    videoIntroUrl: ""
   });
 
   const benefits = [
@@ -63,425 +82,482 @@ const BecomeMentorPage = () => {
   ];
 
   const process = [
-    {
-      step: "1",
-      title: "Apply",
-      description: "Submit your application with your background and expertise"
-    },
-    {
-      step: "2",
-      title: "Review",
-      description: "Our team reviews your application within 48 hours"
-    },
-    {
-      step: "3",
-      title: "Interview",
-      description: "Complete a brief video interview to assess fit"
-    },
-    {
-      step: "4",
-      title: "Onboard",
-      description: "Complete onboarding and start accepting mentees"
-    }
+    { step: "1", title: "Apply", description: "Submit your application with your background" },
+    { step: "2", title: "Review", description: "Our team reviews within 48 hours" },
+    { step: "3", title: "Interview", description: "Complete a brief video interview" },
+    { step: "4", title: "Onboard", description: "Start accepting mentees" }
   ];
 
-  const testimonials = [
-    {
-      name: "Sarah Williams",
-      role: "Senior Product Manager",
-      company: "Google",
-      quote: "Mentoring through MentiEdify has been incredibly rewarding. I've helped 50+ people advance their careers while building meaningful connections.",
-      rating: 5
-    },
-    {
-      name: "Michael Chen",
-      role: "Tech Lead",
-      company: "Amazon",
-      quote: "The platform makes it easy to manage my mentoring schedule. I love seeing my mentees grow and achieve their goals.",
-      rating: 5
-    }
+  const steps = [
+    { number: 1, title: "Basic Info", icon: User },
+    { number: 2, title: "Expertise", icon: Award },
+    { number: 3, title: "Profile", icon: Globe }
   ];
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+  const handleInputChange = (field: keyof FormData, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!user) {
-      toast({
-        title: "Authentication Required",
-        description: "Please sign in to submit your mentor application.",
-        variant: "destructive",
-      });
-      navigate('/auth');
-      return;
-    }
+  const toggleExpertise = (skill: string) => {
+    setFormData(prev => ({
+      ...prev,
+      expertise: prev.expertise.includes(skill)
+        ? prev.expertise.filter(s => s !== skill)
+        : [...prev.expertise, skill]
+    }));
+  };
 
+  const toggleLanguage = (lang: string) => {
+    setFormData(prev => ({
+      ...prev,
+      languages: prev.languages.includes(lang)
+        ? prev.languages.filter(l => l !== lang)
+        : [...prev.languages, lang]
+    }));
+  };
+
+  const handleSubmit = async () => {
     setLoading(true);
     
-    try {
-      // Check if user already has a mentor profile
-      const { data: existingMentor, error: checkError } = await supabase
-        .from('mentors')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (checkError && checkError.code !== 'PGRST116') {
-        throw checkError;
-      }
-
-      if (existingMentor) {
-        toast({
-          title: "Application Already Exists",
-          description: "You already have a mentor profile. Redirecting to your dashboard.",
-        });
-        navigate('/mentor-dashboard');
-        return;
-      }
-
-      // Parse expertise as array
-      const expertiseArray = formData.expertise
-        .split(',')
-        .map(item => item.trim())
-        .filter(item => item.length > 0);
-
-      // Create mentor profile
-      const { error: insertError } = await supabase
-        .from('mentors')
-        .insert({
-          user_id: user.id,
-          name: `${formData.firstName} ${formData.lastName}`,
-          title: formData.title,
-          bio: formData.bio,
-          expertise: expertiseArray,
-          hourly_rate: parseFloat(formData.hourlyRate),
-          years_experience: parseInt(formData.experience),
-          is_verified: false, // Requires admin approval
-          availability_status: 'pending_approval'
-        });
-
-      if (insertError) {
-        throw insertError;
-      }
-
-      toast({
-        title: "Application Submitted!",
-        description: "Thank you for your interest in becoming a mentor. We'll review your application and get back to you soon.",
+    // Simulate submission - Replace with actual Supabase call
+    /*
+    const { data, error } = await supabase
+      .from('mentors')
+      .insert({
+        user_id: user?.id,
+        name: formData.name,
+        title: formData.title,
+        bio: formData.bio,
+        expertise: formData.expertise,
+        hourly_rate: parseFloat(formData.hourlyRate),
+        years_experience: parseInt(formData.yearsExperience),
+        languages: formData.languages,
+        video_intro_url: formData.videoIntroUrl || null,
+        availability_status: 'available',
+        is_verified: false,
+        rating: 0,
+        total_reviews: 0,
+        session_types: ['video', 'audio', 'chat'],
+        response_time_hours: 24,
+        cancellation_policy: 'flexible'
       });
-
-      // Clear the form
-      setFormData({
-        firstName: "",
-        lastName: "",
-        email: "",
-        company: "",
-        title: "",
-        experience: "",
-        expertise: "",
-        hourlyRate: "",
-        bio: ""
-      });
-
-    } catch (error) {
-      console.error('Error submitting mentor application:', error);
-      toast({
-        title: "Submission Failed",
-        description: "There was an error submitting your application. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
+    */
+    
+    console.log("Form submitted:", formData);
+    
+    setTimeout(() => {
       setLoading(false);
-    }
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        setShowApplicationForm(false);
+        setCurrentStep(1);
+        setFormData({
+          name: "",
+          title: "",
+          bio: "",
+          expertise: [],
+          hourlyRate: "",
+          yearsExperience: "",
+          languages: ["English"],
+          videoIntroUrl: ""
+        });
+      }, 3000);
+    }, 1500);
   };
 
-  return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main>
-        {/* Hero Section */}
-        <section className="py-20 px-4 bg-gradient-to-br from-primary/10 to-secondary/10">
-          <div className="container mx-auto text-center">
-            <h1 className="text-4xl md:text-6xl font-bold mb-6">
-              Share Your Expertise,
-              <br />
-              <span className="text-primary">Shape the Future</span>
+  const scrollToApplication = () => {
+    setShowApplicationForm(true);
+    setTimeout(() => {
+      document.getElementById('application-form')?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
+  if (showApplicationForm) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-8 px-4">
+        <div className="container mx-auto max-w-4xl">
+          <Button
+            variant="ghost"
+            onClick={() => setShowApplicationForm(false)}
+            className="mb-4"
+          >
+            ← Back to Overview
+          </Button>
+
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full mb-4">
+              <Sparkles className="w-4 h-4" />
+              <span className="text-sm font-medium">Become a Mentor</span>
+            </div>
+            <h1 className="text-4xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              Share Your Expertise, Shape the Future
             </h1>
-            <p className="text-xl text-muted-foreground max-w-3xl mx-auto mb-8">
-              Join thousands of professionals who are making a difference by mentoring 
-              the next generation. Earn competitive rates while giving back to your community.
-            </p>
-            <Button size="lg" className="mb-8">
-              Start Your Application
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-            <div className="flex flex-wrap justify-center gap-8 text-center">
-              <div>
-                <div className="text-2xl font-bold">$150</div>
-                <div className="text-sm text-muted-foreground">Average hourly rate</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold">2,500+</div>
-                <div className="text-sm text-muted-foreground">Active mentors</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold">4.9/5</div>
-                <div className="text-sm text-muted-foreground">Mentor satisfaction</div>
-              </div>
-            </div>
           </div>
-        </section>
 
-        {/* Benefits Section */}
-        <section className="py-20 px-4">
-          <div className="container mx-auto">
-            <div className="text-center mb-16">
-              <h2 className="text-3xl md:text-4xl font-bold mb-6">Why Mentor with MentiEdify?</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Join a platform designed by mentors, for mentors. We handle the logistics 
-                so you can focus on what you do best.
-              </p>
-            </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-              {benefits.map((benefit, index) => (
-                <Card key={index} className="text-center">
-                  <CardContent className="p-6">
-                    <benefit.icon className="h-12 w-12 mx-auto mb-4 text-primary" />
-                    <h3 className="font-semibold mb-2">{benefit.title}</h3>
-                    <p className="text-sm text-muted-foreground">{benefit.description}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Process Section */}
-        <section className="py-20 px-4 bg-muted/30">
-          <div className="container mx-auto">
-            <div className="text-center mb-16">
-              <h2 className="text-3xl md:text-4xl font-bold mb-6">How It Works</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Our streamlined process gets you up and running as a mentor in just a few days.
-              </p>
-            </div>
-            <div className="grid md:grid-cols-4 gap-8">
-              {process.map((step, index) => (
-                <div key={index} className="text-center">
-                  <div className="w-12 h-12 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-lg font-bold mx-auto mb-4">
-                    {step.step}
+          <div className="mb-8">
+            <div className="flex items-center justify-between max-w-2xl mx-auto">
+              {steps.map((step, index) => {
+                const Icon = step.icon;
+                const isActive = currentStep === step.number;
+                const isCompleted = currentStep > step.number;
+                
+                return (
+                  <div key={step.number} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center flex-1">
+                      <div
+                        className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+                          isCompleted ? "bg-green-600 text-white" : isActive ? "bg-blue-600 text-white shadow-lg" : "bg-slate-200 text-slate-400"
+                        }`}
+                      >
+                        {isCompleted ? <Check className="w-6 h-6" /> : <Icon className="w-6 h-6" />}
+                      </div>
+                      <span className={`text-xs mt-2 font-medium ${isActive ? "text-blue-600" : isCompleted ? "text-green-600" : "text-slate-400"}`}>
+                        {step.title}
+                      </span>
+                    </div>
+                    {index < steps.length - 1 && (
+                      <div className={`h-1 flex-1 mx-2 rounded-full transition-all ${currentStep > step.number ? "bg-green-600" : "bg-slate-200"}`} />
+                    )}
                   </div>
-                  <h3 className="font-semibold mb-2">{step.title}</h3>
-                  <p className="text-sm text-muted-foreground">{step.description}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
-        </section>
 
-        {/* Requirements Section */}
-        <section className="py-20 px-4">
-          <div className="container mx-auto">
-            <div className="grid lg:grid-cols-2 gap-12 items-start">
-              <div>
-                <h2 className="text-3xl font-bold mb-6">Requirements</h2>
-                <p className="text-muted-foreground mb-8">
-                  We maintain high standards to ensure the best experience for our community. 
-                  Here's what we look for in our mentors:
-                </p>
-                <div className="space-y-4">
-                  {requirements.map((requirement, index) => (
-                    <div key={index} className="flex items-start gap-3">
-                      <Check className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
-                      <span className="text-sm">{requirement}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Application Form</CardTitle>
-                  <CardDescription>
-                    Tell us about yourself and your expertise. This usually takes 5-10 minutes.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label htmlFor="firstName">First Name</Label>
-                        <Input
-                          id="firstName"
-                          name="firstName"
-                          value={formData.firstName}
-                          onChange={handleInputChange}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="lastName">Last Name</Label>
-                        <Input
-                          id="lastName"
-                          name="lastName"
-                          value={formData.lastName}
-                          onChange={handleInputChange}
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="email">Email</Label>
+          {showSuccess && (
+            <Alert className="mb-6 bg-green-50 border-green-200">
+              <Check className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-800">
+                Application submitted successfully! We'll review and contact you within 2-3 business days.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <Card className="shadow-xl border-0" id="application-form">
+            <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg">
+              <CardTitle className="text-2xl">Step {currentStep} of 3</CardTitle>
+              <CardDescription className="text-blue-100">
+                {currentStep === 1 && "Tell us about yourself"}
+                {currentStep === 2 && "Share your areas of expertise"}
+                {currentStep === 3 && "Complete your profile"}
+              </CardDescription>
+            </CardHeader>
+            
+            <CardContent className="p-6">
+              <ScrollArea className="h-[500px] pr-4">
+                {currentStep === 1 && (
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="name" className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-blue-600" />
+                        Full Name *
+                      </Label>
                       <Input
-                        id="email"
-                        name="email"
-                        type="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        required
+                        id="name"
+                        value={formData.name}
+                        onChange={(e) => handleInputChange("name", e.target.value)}
+                        placeholder="John Doe"
                       />
                     </div>
-                    <div>
-                      <Label htmlFor="company">Current Company</Label>
-                      <Input
-                        id="company"
-                        name="company"
-                        value={formData.company}
-                        onChange={handleInputChange}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="title">Job Title</Label>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="title" className="flex items-center gap-2">
+                        <Briefcase className="w-4 h-4 text-blue-600" />
+                        Professional Title *
+                      </Label>
                       <Input
                         id="title"
-                        name="title"
                         value={formData.title}
-                        onChange={handleInputChange}
-                        required
+                        onChange={(e) => handleInputChange("title", e.target.value)}
+                        placeholder="Senior Software Engineer"
                       />
                     </div>
-                    <div>
-                      <Label htmlFor="experience">Years of Experience</Label>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="experience" className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-blue-600" />
+                        Years of Experience *
+                      </Label>
                       <Input
                         id="experience"
-                        name="experience"
                         type="number"
-                        min="5"
-                        value={formData.experience}
-                        onChange={handleInputChange}
-                        required
+                        value={formData.yearsExperience}
+                        onChange={(e) => handleInputChange("yearsExperience", e.target.value)}
+                        placeholder="5"
+                        min="0"
                       />
                     </div>
-                    <div>
-                      <Label htmlFor="expertise">Areas of Expertise (comma separated)</Label>
-                      <Input
-                        id="expertise"
-                        name="expertise"
-                        placeholder="e.g. Product Management, Leadership, Career Development"
-                        value={formData.expertise}
-                        onChange={handleInputChange}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="hourlyRate">Desired Hourly Rate ($)</Label>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="hourlyRate" className="flex items-center gap-2">
+                        <DollarSign className="w-4 h-4 text-blue-600" />
+                        Hourly Rate (USD) *
+                      </Label>
                       <Input
                         id="hourlyRate"
-                        name="hourlyRate"
                         type="number"
-                        min="25"
-                        max="500"
                         value={formData.hourlyRate}
-                        onChange={handleInputChange}
-                        required
+                        onChange={(e) => handleInputChange("hourlyRate", e.target.value)}
+                        placeholder="150"
+                        min="0"
+                        step="0.01"
                       />
+                      <p className="text-xs text-slate-500">Average: $150/hour</p>
                     </div>
-                    <div>
-                      <Label htmlFor="bio">Professional Bio</Label>
+                  </div>
+                )}
+
+                {currentStep === 2 && (
+                  <div className="space-y-6">
+                    <div className="space-y-3">
+                      <Label className="flex items-center gap-2">
+                        <GraduationCap className="w-4 h-4 text-blue-600" />
+                        Areas of Expertise * (Select at least 3)
+                      </Label>
+                      <div className="flex flex-wrap gap-2">
+                        {expertiseOptions.map((skill) => (
+                          <Badge
+                            key={skill}
+                            variant={formData.expertise.includes(skill) ? "default" : "outline"}
+                            className={`cursor-pointer px-4 py-2 transition-all ${
+                              formData.expertise.includes(skill) ? "bg-blue-600 hover:bg-blue-700" : "hover:bg-slate-100"
+                            }`}
+                            onClick={() => toggleExpertise(skill)}
+                          >
+                            {formData.expertise.includes(skill) && <Check className="w-3 h-3 mr-1" />}
+                            {skill}
+                          </Badge>
+                        ))}
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        Selected: {formData.expertise.length} area{formData.expertise.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                      <Label className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-blue-600" />
+                        Languages * (Select at least 1)
+                      </Label>
+                      <div className="flex flex-wrap gap-2">
+                        {languageOptions.map((lang) => (
+                          <Badge
+                            key={lang}
+                            variant={formData.languages.includes(lang) ? "default" : "outline"}
+                            className={`cursor-pointer px-4 py-2 transition-all ${
+                              formData.languages.includes(lang) ? "bg-blue-600 hover:bg-blue-700" : "hover:bg-slate-100"
+                            }`}
+                            onClick={() => toggleLanguage(lang)}
+                          >
+                            {formData.languages.includes(lang) && <Check className="w-3 h-3 mr-1" />}
+                            {lang}
+                          </Badge>
+                        ))}
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        Selected: {formData.languages.length} language{formData.languages.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === 3 && (
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="bio">Professional Bio *</Label>
                       <Textarea
                         id="bio"
-                        name="bio"
-                        placeholder="Tell us about your background, achievements, and what you're passionate about mentoring..."
                         value={formData.bio}
-                        onChange={handleInputChange}
-                        className="min-h-[100px]"
-                        required
+                        onChange={(e) => handleInputChange("bio", e.target.value)}
+                        placeholder="Tell us about yourself, your experience, and what you're passionate about mentoring..."
+                        className="min-h-[200px]"
                       />
+                      <p className="text-xs text-slate-500">{formData.bio.length} characters</p>
                     </div>
-                     <Button type="submit" className="w-full" size="lg" disabled={loading}>
-                       {loading ? "Submitting..." : "Submit Application"}
-                       <ArrowRight className="ml-2 h-4 w-4" />
-                     </Button>
-                  </form>
+
+                    <Separator />
+
+                    <div className="space-y-2">
+                      <Label htmlFor="videoIntro" className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-blue-600" />
+                        Video Introduction URL (Optional)
+                      </Label>
+                      <Input
+                        id="videoIntro"
+                        value={formData.videoIntroUrl}
+                        onChange={(e) => handleInputChange("videoIntroUrl", e.target.value)}
+                        placeholder="https://youtube.com/watch?v=..."
+                      />
+                      <p className="text-xs text-slate-500">
+                        Add a YouTube or Vimeo link to introduce yourself (recommended)
+                      </p>
+                    </div>
+
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        By submitting, you agree to our terms and conditions. Your profile will be reviewed within 2-3 business days.
+                      </AlertDescription>
+                    </Alert>
+                  </div>
+                )}
+              </ScrollArea>
+
+              <div className="flex items-center justify-between mt-6 pt-6 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentStep(Math.max(1, currentStep - 1))}
+                  disabled={currentStep === 1}
+                  className="gap-2"
+                >
+                  <ChevronRight className="w-4 h-4 rotate-180" />
+                  Previous
+                </Button>
+
+                <div className="text-sm text-slate-500">
+                  Step {currentStep} of 3
+                </div>
+
+                {currentStep < 3 ? (
+                  <Button
+                    onClick={() => setCurrentStep(Math.min(3, currentStep + 1))}
+                    className="gap-2 bg-blue-600 hover:bg-blue-700"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className="gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                  >
+                    {loading ? "Submitting..." : "Submit Application"}
+                    <Check className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white">
+      <section className="py-20 px-4 bg-gradient-to-br from-blue-600 via-purple-600 to-blue-700">
+        <div className="container mx-auto text-center">
+          <h1 className="text-5xl md:text-6xl font-bold mb-6 text-white">
+            Share Your Expertise,
+            <br />
+            Shape the Future
+          </h1>
+          <p className="text-xl text-blue-100 max-w-3xl mx-auto mb-8">
+            Join thousands of professionals making a difference by mentoring the next generation
+          </p>
+          <Button 
+            size="lg" 
+            className="mb-8 bg-white text-blue-600 hover:bg-blue-50"
+            onClick={scrollToApplication}
+          >
+            Start Your Application
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+          <div className="flex flex-wrap justify-center gap-12 text-center text-white">
+            <div>
+              <div className="text-3xl font-bold">$150</div>
+              <div className="text-sm text-blue-200">Average hourly rate</div>
+            </div>
+            <div>
+              <div className="text-3xl font-bold">2,500+</div>
+              <div className="text-sm text-blue-200">Active mentors</div>
+            </div>
+            <div>
+              <div className="text-3xl font-bold">4.9/5</div>
+              <div className="text-sm text-blue-200">Mentor satisfaction</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 px-4">
+        <div className="container mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold mb-6">Why Mentor with MentiEdify?</h2>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+            {benefits.map((benefit, index) => (
+              <Card key={index} className="text-center hover:shadow-lg transition-shadow">
+                <CardContent className="p-6">
+                  <benefit.icon className="h-12 w-12 mx-auto mb-4 text-blue-600" />
+                  <h3 className="font-semibold mb-2">{benefit.title}</h3>
+                  <p className="text-sm text-slate-600">{benefit.description}</p>
                 </CardContent>
               </Card>
-            </div>
+            ))}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* Testimonials Section */}
-        <section className="py-20 px-4 bg-muted/30">
-          <div className="container mx-auto">
-            <div className="text-center mb-16">
-              <h2 className="text-3xl md:text-4xl font-bold mb-6">What Our Mentors Say</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Hear from successful mentors who are making a difference on our platform.
-              </p>
-            </div>
-            <div className="grid md:grid-cols-2 gap-8">
-              {testimonials.map((testimonial, index) => (
-                <Card key={index}>
-                  <CardContent className="p-6">
-                    <div className="flex mb-4">
-                      {[...Array(testimonial.rating)].map((_, i) => (
-                        <Star key={i} className="h-4 w-4 fill-current text-yellow-400" />
-                      ))}
-                    </div>
-                    <p className="text-muted-foreground mb-4">"{testimonial.quote}"</p>
-                    <div className="flex items-center gap-3">
-                      <img
-                        src="/placeholder.svg"
-                        alt={testimonial.name}
-                        className="w-12 h-12 rounded-full object-cover"
-                      />
-                      <div>
-                        <h4 className="font-medium">{testimonial.name}</h4>
-                        <p className="text-sm text-muted-foreground">
-                          {testimonial.role} at {testimonial.company}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+      <section className="py-20 px-4 bg-slate-50">
+        <div className="container mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold mb-6">How It Works</h2>
           </div>
-        </section>
+          <div className="grid md:grid-cols-4 gap-8">
+            {process.map((step, index) => (
+              <div key={index} className="text-center">
+                <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center text-2xl font-bold mx-auto mb-4">
+                  {step.step}
+                </div>
+                <h3 className="font-semibold mb-2 text-lg">{step.title}</h3>
+                <p className="text-sm text-slate-600">{step.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-        {/* CTA Section */}
-        <section className="py-20 px-4 bg-primary text-primary-foreground">
-          <div className="container mx-auto text-center">
-            <h2 className="text-3xl md:text-4xl font-bold mb-6">Ready to Make an Impact?</h2>
-            <p className="text-lg mb-8 opacity-90 max-w-2xl mx-auto">
-              Join our community of expert mentors and start sharing your knowledge today. 
-              Your experience could be the key to someone's breakthrough.
-            </p>
-             <Button size="lg" variant="secondary" onClick={() => {
-               const applicationSection = document.getElementById('application-section');
-               applicationSection?.scrollIntoView({ behavior: 'smooth' });
-             }}>
-               Start Your Application
-               <ArrowRight className="ml-2 h-4 w-4" />
-             </Button>
+      <section className="py-20 px-4">
+        <div className="container mx-auto max-w-4xl">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-bold mb-6">Requirements</h2>
           </div>
-        </section>
-      </main>
-      <Footer />
+          <Card className="max-w-2xl mx-auto">
+            <CardContent className="p-8">
+              <div className="space-y-4">
+                {requirements.map((requirement, index) => (
+                  <div key={index} className="flex items-start gap-3">
+                    <Check className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span>{requirement}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section className="py-20 px-4 bg-blue-600 text-white">
+        <div className="container mx-auto text-center">
+          <h2 className="text-4xl font-bold mb-6">Ready to Make an Impact?</h2>
+          <p className="text-xl mb-8 text-blue-100 max-w-2xl mx-auto">
+            Join our community of expert mentors today
+          </p>
+          <Button 
+            size="lg" 
+            variant="secondary"
+            onClick={scrollToApplication}
+          >
+            Start Your Application
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
+      </section>
     </div>
   );
 };

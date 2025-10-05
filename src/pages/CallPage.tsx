@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { 
   Mic, 
   MicOff, 
@@ -28,6 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 const CallPage = () => {
   const { sessionId } = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
   
@@ -38,6 +39,7 @@ const CallPage = () => {
   const [chatMessage, setChatMessage] = useState("");
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [sessionData, setSessionData] = useState<any>(null);
+  const [participantInfo, setParticipantInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -77,10 +79,10 @@ const CallPage = () => {
   // Fetch session data
   useEffect(() => {
     const fetchSessionData = async () => {
-      if (!sessionId) return;
+      if (!sessionId || !user) return;
       
       try {
-        // Get call session with booking and mentor details
+        // Get call session
         const { data: callSession, error: sessionError } = await supabase
           .from('call_sessions')
           .select('*')
@@ -89,44 +91,79 @@ const CallPage = () => {
 
         if (sessionError) throw sessionError;
 
-        // Get booking with mentor and mentee details
+        // Get booking with full details
         const { data: booking, error: bookingError } = await supabase
           .from('bookings')
-          .select(`
-            *,
-            mentor:mentor_id (
-              id,
-              name,
-              title,
-              profile_image_url
-            ),
-            mentee:mentee_id (
-              id,
-              first_name,
-              last_name,
-              avatar
-            )
-          `)
+          .select('*')
           .eq('id', callSession.booking_id)
           .single();
 
         if (bookingError) throw bookingError;
 
+        // Get mentor details
+        const { data: mentorData, error: mentorError } = await supabase
+          .from('mentors')
+          .select('*')
+          .eq('id', booking.mentor_id)
+          .single();
+
+        if (mentorError) throw mentorError;
+
+        // Get mentee details
+        const { data: menteeData, error: menteeError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', booking.mentee_id)
+          .maybeSingle();
+
+        if (menteeError) {
+          console.error('Error fetching mentee:', menteeError);
+        }
+
+        // ⭐ THE FIX: Determine role based on BOTH user_id AND caller_id
+        const isMentorByUserId = mentorData.user_id === user.id;
+        const isMenteeByUserId = booking.mentee_id === user.id;
+        
+        // User is mentor if their user ID matches the mentor's user_id
+        const isMentor = isMentorByUserId;
+
+        console.log('📞 Call Session Info:', {
+          currentUserId: user.id,
+          mentorUserId: mentorData.user_id,
+          menteeUserId: booking.mentee_id,
+          callerId: callSession.caller_id,
+          calleeId: callSession.callee_id,
+          isMentorByUserId,
+          isMenteeByUserId,
+          finalIsMentor: isMentor
+        });
+
+        // ⭐ Set participant info based on user role
+        if (isMentor) {
+          // Current user is MENTOR, show MENTEE info
+          setParticipantInfo({
+            name: menteeData ? `${menteeData.first_name} ${menteeData.last_name}` : 'Mentee',
+            title: 'Mentee',
+            avatar: menteeData?.profile_image_url || "/placeholder.svg"
+          });
+        } else {
+          // Current user is MENTEE, show MENTOR info
+          setParticipantInfo({
+            name: mentorData.name,
+            title: mentorData.title,
+            avatar: mentorData.profile_image_url || "/placeholder.svg"
+          });
+        }
+
         setSessionData({
           id: sessionId,
-          mentor: {
-            name: booking.mentor.name,
-            title: booking.mentor.title,
-            avatar: booking.mentor.profile_image_url || "/placeholder.svg"
-          },
-          mentee: {
-            name: `${booking.mentee.first_name} ${booking.mentee.last_name}`,
-            avatar: booking.mentee.avatar || "/placeholder.svg"
-          },
-          topic: booking.topic || "Mentorship Session",
-          scheduledTime: `${booking.session_date} ${booking.session_time}`,
-          sessionType: booking.session_type || "video"
+          bookingId: booking.id,
+          topic: booking.topic || booking.notes || "Mentorship Session",
+          scheduledTime: `${new Date(booking.session_date).toLocaleDateString()} ${booking.session_time}`,
+          sessionType: booking.session_type || "video",
+          isMentor
         });
+
       } catch (error) {
         console.error('Error fetching session data:', error);
         toast({
@@ -140,7 +177,7 @@ const CallPage = () => {
     };
 
     fetchSessionData();
-  }, [sessionId, toast]);
+  }, [sessionId, user, toast]);
 
   // Update video elements when streams change
   useEffect(() => {
@@ -205,6 +242,7 @@ const CallPage = () => {
         description: "Connecting to the session...",
       });
     } catch (err) {
+      console.error('Error starting call:', err);
       toast({
         title: "Failed to Start Call",
         description: "Please check your camera and microphone permissions",
@@ -219,6 +257,15 @@ const CallPage = () => {
       title: "Call Ended",
       description: "The call has been terminated",
     });
+    
+    // Navigate back to appropriate dashboard
+    setTimeout(() => {
+      if (sessionData?.isMentor) {
+        navigate('/mentor-dashboard');
+      } else {
+        navigate('/mentee-dashboard');
+      }
+    }, 1500);
   };
 
   const sendMessage = () => {
@@ -235,10 +282,13 @@ const CallPage = () => {
     }
   };
 
-  if (loading || !sessionData) {
+  if (loading || !sessionData || !participantInfo) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <div className="text-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto" />
+          <p className="text-muted-foreground">Loading session...</p>
+        </div>
       </div>
     );
   }
@@ -251,13 +301,13 @@ const CallPage = () => {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3">
               <img
-                src={sessionData.mentor.avatar}
-                alt={sessionData.mentor.name}
+                src={participantInfo.avatar}
+                alt={participantInfo.name}
                 className="w-10 h-10 rounded-full object-cover"
               />
               <div>
-                <h2 className="font-semibold">{sessionData.mentor.name}</h2>
-                <p className="text-sm text-muted-foreground">{sessionData.mentor.title}</p>
+                <h2 className="font-semibold">{participantInfo.name}</h2>
+                <p className="text-sm text-muted-foreground">{participantInfo.title}</p>
               </div>
             </div>
             <Badge variant="outline">{sessionData.sessionType} call</Badge>
@@ -296,18 +346,20 @@ const CallPage = () => {
             <div className="h-full flex items-center justify-center">
               <Card className="w-96">
                 <CardHeader className="text-center">
-                  <div className="flex items-center justify-center space-x-4 mb-4">
+                  <div className="flex flex-col items-center space-y-4 mb-4">
                     <img
-                      src={sessionData.mentor.avatar}
-                      alt={sessionData.mentor.name}
-                      className="w-16 h-16 rounded-full object-cover"
+                      src={participantInfo.avatar}
+                      alt={participantInfo.name}
+                      className="w-20 h-20 rounded-full object-cover"
                     />
                     <div>
-                      <CardTitle>{sessionData.mentor.name}</CardTitle>
-                      <p className="text-muted-foreground">{sessionData.mentor.title}</p>
+                      <CardTitle className="text-xl">{participantInfo.name}</CardTitle>
+                      <p className="text-muted-foreground">{participantInfo.title}</p>
                     </div>
                   </div>
-                  <Badge variant="secondary">{sessionData.scheduledTime}</Badge>
+                  <Badge variant="secondary" className="text-xs">
+                    {sessionData.scheduledTime}
+                  </Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-center">
@@ -353,22 +405,30 @@ const CallPage = () => {
             // Active call UI
             <div className="h-full relative">
               {/* Remote Video */}
-              <video
-                ref={remoteVideoRef}
-                className="w-full h-full object-cover"
-                autoPlay
-                playsInline
-              />
+              {remoteStream ? (
+                <video
+                  ref={remoteVideoRef}
+                  className="w-full h-full object-cover"
+                  autoPlay
+                  playsInline
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 text-white">
+                  <Users className="h-16 w-16 mb-4 text-slate-600" />
+                  <p className="text-lg">Waiting for {participantInfo.name}...</p>
+                </div>
+              )}
               
               {/* Local Video (Picture-in-Picture) */}
-              <div className="absolute top-4 right-4 w-48 h-36 bg-slate-800 rounded-lg overflow-hidden border-2 border-white">
-                {isVideoEnabled ? (
+              <div className="absolute top-4 right-4 w-48 h-36 bg-slate-800 rounded-lg overflow-hidden border-2 border-white shadow-lg">
+                {isVideoEnabled && localStream ? (
                   <video
                     ref={localVideoRef}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover mirror"
                     autoPlay
                     muted
                     playsInline
+                    style={{ transform: 'scaleX(-1)' }}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-slate-700">
@@ -378,10 +438,10 @@ const CallPage = () => {
               </div>
 
               {/* Participant Info */}
-              <div className="absolute top-4 left-4 bg-black/50 text-white px-3 py-2 rounded-lg">
+              <div className="absolute top-4 left-4 bg-black/50 text-white px-4 py-2 rounded-lg backdrop-blur-sm">
                 <div className="flex items-center space-x-2">
-                  <Users className="h-4 w-4" />
-                  <span className="text-sm">{sessionData.mentor.name}</span>
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`}></div>
+                  <span className="text-sm font-medium">{participantInfo.name}</span>
                 </div>
               </div>
             </div>
@@ -398,31 +458,37 @@ const CallPage = () => {
             <CardContent className="flex-1 p-0 flex flex-col">
               <ScrollArea className="flex-1 p-4">
                 <div className="space-y-4">
-                  {chatMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex ${msg.isMe ? "justify-end" : "justify-start"}`}
-                    >
+                  {chatMessages.length === 0 ? (
+                    <div className="text-center text-muted-foreground text-sm py-8">
+                      No messages yet. Start the conversation!
+                    </div>
+                  ) : (
+                    chatMessages.map((msg) => (
                       <div
-                        className={`max-w-[80%] p-3 rounded-lg ${
-                          msg.isMe
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                        }`}
+                        key={msg.id}
+                        className={`flex ${msg.isMe ? "justify-end" : "justify-start"}`}
                       >
-                        <p className="text-sm">{msg.message}</p>
-                        <p
-                          className={`text-xs mt-1 ${
+                        <div
+                          className={`max-w-[80%] p-3 rounded-lg ${
                             msg.isMe
-                              ? "text-primary-foreground/70"
-                              : "text-muted-foreground"
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted"
                           }`}
                         >
-                          {msg.timestamp}
-                        </p>
+                          <p className="text-sm">{msg.message}</p>
+                          <p
+                            className={`text-xs mt-1 ${
+                              msg.isMe
+                                ? "text-primary-foreground/70"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {msg.timestamp}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </ScrollArea>
               <Separator />
@@ -451,7 +517,8 @@ const CallPage = () => {
             variant={isAudioEnabled ? "default" : "destructive"}
             size="lg"
             onClick={toggleAudio}
-            className="rounded-full p-4"
+            className="rounded-full h-14 w-14"
+            title={isAudioEnabled ? "Mute" : "Unmute"}
           >
             {isAudioEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
           </Button>
@@ -460,16 +527,18 @@ const CallPage = () => {
             variant={isVideoEnabled ? "default" : "destructive"}
             size="lg"
             onClick={toggleVideo}
-            className="rounded-full p-4"
+            className="rounded-full h-14 w-14"
+            title={isVideoEnabled ? "Turn off camera" : "Turn on camera"}
           >
             {isVideoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
           </Button>
           
           <Button
-            variant="outline"
+            variant={showChat ? "default" : "outline"}
             size="lg"
             onClick={() => setShowChat(!showChat)}
-            className="rounded-full p-4"
+            className="rounded-full h-14 w-14"
+            title="Toggle chat"
           >
             <MessageSquare className="h-5 w-5" />
           </Button>
@@ -477,7 +546,8 @@ const CallPage = () => {
           <Button
             variant="outline"
             size="lg"
-            className="rounded-full p-4"
+            className="rounded-full h-14 w-14"
+            title="Settings"
           >
             <Settings className="h-5 w-5" />
           </Button>
@@ -487,7 +557,8 @@ const CallPage = () => {
               variant="destructive"
               size="lg"
               onClick={endCall}
-              className="rounded-full p-4"
+              className="rounded-full h-14 w-14"
+              title="End call"
             >
               <PhoneOff className="h-5 w-5" />
             </Button>
@@ -496,8 +567,9 @@ const CallPage = () => {
               variant="default"
               size="lg"
               onClick={startCall}
-              className="rounded-full p-4"
+              className="rounded-full h-14 w-14 bg-green-600 hover:bg-green-700"
               disabled={isConnecting}
+              title="Start call"
             >
               {isConnecting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Phone className="h-5 w-5" />}
             </Button>

@@ -79,64 +79,88 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
   }, [sessionId, onRemoteStream, onConnectionStateChange]);
 
   // Setup signaling channel
-  const setupSignaling = useCallback(() => {
-    const channel = supabase.channel(`webrtc-${sessionId}`, {
-      config: {
-        broadcast: { self: false }
+const setupSignaling = useCallback(() => {
+  console.log('📡 Setting up signaling channel for session:', sessionId);
+  
+  // Remove existing channel first
+  if (signalingChannelRef.current) {
+    console.log('🗑️ Removing old channel');
+    supabase.removeChannel(signalingChannelRef.current);
+  }
+  
+  const channel = supabase.channel(`webrtc-${sessionId}`, {
+    config: {
+      broadcast: { 
+        self: false,
+        ack: false // ⭐ Disable acknowledgment for faster signaling
+      },
+      presence: {
+        key: sessionId
+      }
+    }
+  });
+
+  channel
+    .on('broadcast', { event: 'offer' }, async ({ payload }) => {
+      console.log('📨 Received offer');
+      const pc = peerConnectionRef.current || createPeerConnection();
+      
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(payload.offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        
+        console.log('📤 Sending answer');
+        channel.send({
+          type: 'broadcast',
+          event: 'answer',
+          payload: { sessionId, answer }
+        });
+      } catch (err) {
+        console.error('❌ Error handling offer:', err);
+        setError('Failed to process call offer');
+      }
+    })
+    .on('broadcast', { event: 'answer' }, async ({ payload }) => {
+      console.log('📨 Received answer');
+      const pc = peerConnectionRef.current;
+      
+      if (pc) {
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
+          console.log('✅ Answer processed');
+        } catch (err) {
+          console.error('❌ Error handling answer:', err);
+          setError('Failed to process call answer');
+        }
+      }
+    })
+    .on('broadcast', { event: 'ice-candidate' }, async ({ payload }) => {
+      console.log('📨 Received ICE candidate');
+      const pc = peerConnectionRef.current;
+      
+      if (pc && payload.candidate) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+          console.log('✅ ICE candidate added');
+        } catch (err) {
+          console.error('❌ Error adding ICE candidate:', err);
+        }
+      }
+    })
+    .subscribe((status) => {
+      console.log('📡 Signaling channel status:', status);
+      
+      // ⭐ Reconnect if channel closes unexpectedly
+      if (status === 'CLOSED' && peerConnectionRef.current) {
+        console.warn('⚠️ Channel closed unexpectedly, will not auto-reconnect');
       }
     });
 
-    channel
-      .on('broadcast', { event: 'offer' }, async ({ payload }) => {
-        console.log('Received offer');
-        const pc = peerConnectionRef.current || createPeerConnection();
-        
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(payload.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          
-          channel.send({
-            type: 'broadcast',
-            event: 'answer',
-            payload: { sessionId, answer }
-          });
-        } catch (err) {
-          console.error('Error handling offer:', err);
-          setError('Failed to process call offer');
-        }
-      })
-      .on('broadcast', { event: 'answer' }, async ({ payload }) => {
-        console.log('Received answer');
-        const pc = peerConnectionRef.current;
-        
-        if (pc) {
-          try {
-            await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
-          } catch (err) {
-            console.error('Error handling answer:', err);
-            setError('Failed to process call answer');
-          }
-        }
-      })
-      .on('broadcast', { event: 'ice-candidate' }, async ({ payload }) => {
-        const pc = peerConnectionRef.current;
-        
-        if (pc && payload.candidate) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-          } catch (err) {
-            console.error('Error adding ICE candidate:', err);
-          }
-        }
-      })
-      .subscribe((status) => {
-        console.log('Signaling channel status:', status);
-      });
+  signalingChannelRef.current = channel;
+  return channel;
+}, [sessionId, createPeerConnection]);
 
-    signalingChannelRef.current = channel;
-    return channel;
-  }, [sessionId, createPeerConnection]);
 
   // Start call
   const startCall = useCallback(async () => {

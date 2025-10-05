@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Check, ArrowRight, Star, Users, DollarSign, Clock, User, Mail, Briefcase, GraduationCap, Globe, Award, ChevronRight, AlertCircle, Sparkles } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -102,6 +102,32 @@ const BecomeMentorPage = () => {
     { number: 3, title: "Profile", icon: Globe }
   ];
 
+  // Auto-populate name from user profile
+  useEffect(() => {
+    const loadUserData = async () => {
+      if (user && showApplicationForm) {
+        try {
+          const { data: userData, error } = await supabase
+            .from('users')
+            .select('first_name, last_name')
+            .eq('id', user.id)
+            .single();
+
+          if (!error && userData) {
+            const fullName = `${userData.first_name || ''} ${userData.last_name || ''}`.trim();
+            if (fullName) {
+              setFormData(prev => ({ ...prev, name: fullName }));
+            }
+          }
+        } catch (error) {
+          console.error('Error loading user data:', error);
+        }
+      }
+    };
+
+    loadUserData();
+  }, [user, showApplicationForm]);
+
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
@@ -161,6 +187,37 @@ const BecomeMentorPage = () => {
     setLoading(true);
     
     try {
+      // ⭐ CRITICAL: Verify user exists and get their current name
+      const { data: existingUser, error: userCheckError } = await supabase
+        .from('users')
+        .select('id, email, first_name, last_name')
+        .eq('id', user.id)
+        .single();
+
+      if (userCheckError || !existingUser) {
+        // User doesn't exist in users table, create it first
+        const nameParts = formData.name.split(' ');
+        const { error: createUserError } = await supabase
+          .from('users')
+          .insert({
+            id: user.id,
+            email: user.email || '',
+            first_name: nameParts[0] || '',
+            last_name: nameParts.slice(1).join(' ') || '',
+            user_type: 'mentor'
+          });
+
+        if (createUserError) {
+          console.error('Error creating user:', createUserError);
+          throw new Error('Failed to create user profile');
+        }
+      }
+
+      // Use the name from users table, not form input
+      const fullName = existingUser 
+        ? `${existingUser.first_name} ${existingUser.last_name}`.trim()
+        : formData.name.trim();
+
       // Check if user already has a mentor profile
       const { data: existingMentor, error: checkError } = await supabase
         .from('mentors')
@@ -174,12 +231,12 @@ const BecomeMentorPage = () => {
         return;
       }
 
-      // Insert new mentor profile
+      // ⭐ Insert new mentor profile with synced name from users table
       const { data, error } = await supabase
         .from('mentors')
         .insert({
           user_id: user.id,
-          name: formData.name.trim(),
+          name: fullName,  // Use name from users table to keep them in sync
           title: formData.title.trim(),
           bio: formData.bio.trim(),
           expertise: formData.expertise,
@@ -198,7 +255,12 @@ const BecomeMentorPage = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error creating mentor profile:', error);
+        throw error;
+      }
+
+      console.log('Mentor profile created successfully:', data);
 
       setShowSuccess(true);
       toast.success("Application submitted successfully!");
@@ -331,7 +393,12 @@ const BecomeMentorPage = () => {
                           onChange={(e) => handleInputChange("name", e.target.value)}
                           placeholder="John Doe"
                           required
+                          disabled
+                          className="bg-muted"
                         />
+                        <p className="text-xs text-muted-foreground">
+                          Name is synced from your profile. To change it, update your profile first.
+                        </p>
                       </div>
 
                       <div className="space-y-2">

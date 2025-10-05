@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Menu, X, Search, User, Bell, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
@@ -12,12 +12,30 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [userType, setUserType] = useState<string | null>(null);
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    const fetchUserType = async () => {
+      if (user) {
+        const { data } = await supabase
+          .from('users')
+          .select('user_type')
+          .eq('id', user.id)
+          .single();
+        setUserType(data?.user_type || null);
+      } else {
+        setUserType(null);
+      }
+    };
+    fetchUserType();
+  }, [user]);
 
   const handleSignOut = async () => {
     try {
@@ -89,7 +107,9 @@ const Header = () => {
                       <Link to="/profile">Profile</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link to="/mentee-dashboard">Dashboard</Link>
+                      <Link to={userType === 'mentor' ? '/mentor-dashboard' : '/mentee-dashboard'}>
+                        Dashboard
+                      </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link to="/messages">Messages</Link>
@@ -162,7 +182,9 @@ const Header = () => {
                       <Link to="/profile" onClick={() => setIsMenuOpen(false)}>Profile</Link>
                     </Button>
                     <Button variant="ghost" className="justify-start" asChild>
-                      <Link to="/mentee-dashboard" onClick={() => setIsMenuOpen(false)}>Dashboard</Link>
+                      <Link to={userType === 'mentor' ? '/mentor-dashboard' : '/mentee-dashboard'} onClick={() => setIsMenuOpen(false)}>
+                        Dashboard
+                      </Link>
                     </Button>
                     <Button variant="ghost" className="justify-start" asChild>
                       <Link to="/messages" onClick={() => setIsMenuOpen(false)}>Messages</Link>

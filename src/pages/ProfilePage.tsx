@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { EditMentorProfileDialog } from "@/components/EditMentorProfileDialog";
 
 const ProfilePage = () => {
   const { user: authUser } = useAuth();
@@ -231,10 +232,12 @@ const ProfilePage = () => {
                        `Welcome to your mentorship journey! ${userProfile?.user_type === 'mentor' ? 'Share your expertise with aspiring professionals.' : 'Connect with experienced mentors to grow your career.'}`}
                     </p>
                   </div>
-                  <Button onClick={() => setIsEditing(true)}>
-                    <Edit3 className="h-4 w-4 mr-2" />
-                    Edit Profile
-                  </Button>
+                  {userProfile?.user_type === 'mentor' && (
+                    <Button onClick={() => setIsEditing(true)}>
+                      <Edit3 className="h-4 w-4 mr-2" />
+                      Edit Profile
+                    </Button>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2 mt-4">
                   {userProfile?.mentorData?.expertise?.map((skill: string, index: number) => (
@@ -394,6 +397,17 @@ const ProfilePage = () => {
         </Tabs>
       </main>
       <Footer />
+      
+      {userProfile?.user_type === 'mentor' && (
+        <EditMentorProfileDialog
+          open={isEditing}
+          onOpenChange={setIsEditing}
+          onProfileUpdated={() => {
+            fetchUserProfile();
+            fetchUserStats();
+          }}
+        />
+      )}
     </div>
   );
 };

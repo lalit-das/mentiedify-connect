@@ -82,8 +82,22 @@ const AuthPage = () => {
         description: "You have been successfully logged in.",
       });
 
-      const from = location.state?.from?.pathname || "/";
-      navigate(from, { replace: true });
+      // Get user data to check user_type
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const { data: userData } = await supabase
+        .from('users')
+        .select('user_type')
+        .eq('id', currentUser?.id)
+        .single();
+
+      // Redirect based on user type
+      const from = location.state?.from?.pathname;
+      if (from) {
+        navigate(from, { replace: true });
+      } else {
+        const redirectPath = userData?.user_type === 'mentor' ? '/mentor-dashboard' : '/mentee-dashboard';
+        navigate(redirectPath, { replace: true });
+      }
     } catch (error) {
       toast({
         title: "Error",

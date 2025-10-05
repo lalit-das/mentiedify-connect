@@ -130,45 +130,47 @@ const fetchMentorData = async () => {
 
     console.log('📅 Fetching bookings for mentor_id:', mentorData.id);
 
-    // Fetch upcoming bookings
+    // Fetch upcoming bookings - simplified query
     const { data: bookingsData, error: bookingsError } = await supabase
       .from('bookings')
-      .select(`
-        id,
-        session_date,
-        session_time,
-        session_type,
-        status,
-        notes,
-        topic,
-        price,
-        mentee_id,
-        mentees:users!bookings_mentee_id_fkey(
-          id,
-          first_name,
-          last_name,
-          email
-        )
-      `)
+      .select('*')
       .eq('mentor_id', mentorData.id)
       .in('status', ['pending', 'confirmed'])
       .gte('session_date', new Date().toISOString().split('T')[0])
       .order('session_date', { ascending: true })
       .order('session_time', { ascending: true });
 
-    console.log('📊 Bookings found:', bookingsData?.length, bookingsData);
+    console.log('📊 Raw bookings data:', bookingsData);
 
     if (bookingsError) {
       console.error('❌ Error fetching bookings:', bookingsError);
       throw bookingsError;
     }
 
-    const formattedBookings = (bookingsData || []).map((booking: any) => ({
+    // Manually fetch mentee details for each booking
+    const bookingsWithMentees = await Promise.all(
+      (bookingsData || []).map(async (booking: any) => {
+        const { data: menteeData } = await supabase
+          .from('users')
+          .select('id, first_name, last_name, email')
+          .eq('id', booking.mentee_id)
+          .single();
+
+        return {
+          ...booking,
+          mentee: menteeData
+        };
+      })
+    );
+
+    console.log('👥 Bookings with mentee data:', bookingsWithMentees);
+
+    const formattedBookings = bookingsWithMentees.map((booking: any) => ({
       id: booking.id,
-      mentee: booking.mentees 
-        ? `${booking.mentees.first_name || 'Unknown'} ${booking.mentees.last_name || 'User'}` 
+      mentee: booking.mentee 
+        ? `${booking.mentee.first_name || 'Unknown'} ${booking.mentee.last_name || 'User'}` 
         : 'Unknown Mentee',
-      menteeEmail: booking.mentees?.email || '',
+      menteeEmail: booking.mentee?.email || '',
       time: booking.session_time,
       date: new Date(booking.session_date).toLocaleDateString('en-US', { 
         month: 'short', 
@@ -185,92 +187,79 @@ const fetchMentorData = async () => {
 
     setUpcomingSessions(formattedBookings);
 
-    // ... rest of the function remains the same
-
-      // Fetch recent messages
+    // Fetch recent messages (skip if messages table doesn't exist)
+    try {
       const { data: messagesData, error: messagesError } = await supabase
         .from('messages')
-        .select(`
-          id,
-          content,
-          created_at,
-          is_read,
-          sender_id,
-          senders:users!messages_sender_id_fkey(
-            first_name,
-            last_name
-          )
-        `)
+        .select('*')
         .eq('recipient_id', user?.id)
         .order('created_at', { ascending: false })
         .limit(5);
 
-      if (messagesError && messagesError.code !== 'PGRST116') {
-        console.error('Error fetching messages:', messagesError);
+      if (messagesData && !messagesError) {
+        const formattedMessages = messagesData.map((message: any) => ({
+          id: message.id,
+          from: 'Unknown User',
+          message: message.content,
+          time: new Date(message.created_at).toLocaleDateString(),
+          unread: !message.is_read
+        }));
+        setRecentMessages(formattedMessages);
       }
-
-      const formattedMessages = (messagesData || []).map((message: any) => ({
-        id: message.id,
-        from: message.senders 
-          ? `${message.senders.first_name} ${message.senders.last_name}` 
-          : 'Unknown User',
-        message: message.content,
-        time: new Date(message.created_at).toLocaleDateString(),
-        unread: !message.is_read
-      }));
-
-      setRecentMessages(formattedMessages);
-
-      // Calculate stats
-      const { data: totalBookings, count: totalCount } = await supabase
-        .from('bookings')
-        .select('id', { count: 'exact', head: false })
-        .eq('mentor_id', mentorData.id)
-        .eq('status', 'completed');
-
-      const totalSessions = totalCount || 0;
-      const rating = mentorData.rating || 0;
-      
-      // Calculate monthly earnings
-      const currentMonth = new Date().toISOString().slice(0, 7);
-      const { data: monthlyBookings } = await supabase
-        .from('bookings')
-        .select('price')
-        .eq('mentor_id', mentorData.id)
-        .eq('status', 'completed')
-        .gte('session_date', currentMonth + '-01');
-
-      const monthlyEarnings = (monthlyBookings || []).reduce((sum: number, booking: any) => 
-        sum + (booking.price || 0), 0
-      );
-
-      // Get unique mentee count
-      const { data: uniqueMentees } = await supabase
-        .from('bookings')
-        .select('mentee_id')
-        .eq('mentor_id', mentorData.id)
-        .eq('status', 'completed');
-
-      const activeMentees = new Set(uniqueMentees?.map(b => b.mentee_id)).size;
-
-      setStats([
-        { title: "Total Sessions", value: totalSessions.toString(), icon: Video, change: "+12%" },
-        { title: "Average Rating", value: rating.toFixed(1), icon: Star, change: "+0.1" },
-        { title: "Active Mentees", value: activeMentees.toString(), icon: Users, change: "+3" },
-        { title: "Monthly Earnings", value: `$${monthlyEarnings}`, icon: DollarSign, change: "+18%" }
-      ]);
-
     } catch (error) {
-      console.error('Error fetching mentor data:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load dashboard data. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
+      console.log('Messages table not available, skipping...');
     }
-  };
+
+    // Calculate stats
+    const { count: totalCount } = await supabase
+      .from('bookings')
+      .select('*', { count: 'exact', head: true })
+      .eq('mentor_id', mentorData.id)
+      .eq('status', 'completed');
+
+    const totalSessions = totalCount || 0;
+    const rating = mentorData.rating || 0;
+    
+    // Calculate monthly earnings
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const { data: monthlyBookings } = await supabase
+      .from('bookings')
+      .select('price')
+      .eq('mentor_id', mentorData.id)
+      .eq('status', 'completed')
+      .gte('session_date', currentMonth + '-01');
+
+    const monthlyEarnings = (monthlyBookings || []).reduce((sum: number, booking: any) => 
+      sum + (booking.price || 0), 0
+    );
+
+    // Get unique mentee count
+    const { data: uniqueMentees } = await supabase
+      .from('bookings')
+      .select('mentee_id')
+      .eq('mentor_id', mentorData.id)
+      .eq('status', 'completed');
+
+    const activeMentees = new Set(uniqueMentees?.map(b => b.mentee_id)).size;
+
+    setStats([
+      { title: "Total Sessions", value: totalSessions.toString(), icon: Video, change: "+12%" },
+      { title: "Average Rating", value: rating.toFixed(1), icon: Star, change: "+0.1" },
+      { title: "Active Mentees", value: activeMentees.toString(), icon: Users, change: "+3" },
+      { title: "Monthly Earnings", value: `$${monthlyEarnings}`, icon: DollarSign, change: "+18%" }
+    ]);
+
+  } catch (error) {
+    console.error('Error fetching mentor data:', error);
+    toast({
+      title: "Error",
+      description: "Failed to load dashboard data. Please try again.",
+      variant: "destructive",
+    });
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleAcceptBooking = async (bookingId: string) => {
     try {

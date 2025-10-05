@@ -98,83 +98,94 @@ const MentorDashboard = () => {
   }
 };
 
-  const fetchMentorData = async () => {
-    try {
-      setLoading(true);
+const fetchMentorData = async () => {
+  try {
+    setLoading(true);
 
-      // Fetch mentor profile
-      const { data: mentorData, error: mentorError } = await supabase
-        .from('mentors')
-        .select('*')
-        .eq('user_id', user?.id)
-        .single();
+    console.log('🔍 Current user ID:', user?.id);
 
-      if (mentorError && mentorError.code !== 'PGRST116') {
-        throw mentorError;
-      }
+    // Fetch mentor profile
+    const { data: mentorData, error: mentorError } = await supabase
+      .from('mentors')
+      .select('*')
+      .eq('user_id', user?.id)
+      .single();
 
-      if (!mentorData) {
-        // User is not a mentor yet
-        toast({
-          title: "Mentor Profile Not Found",
-          description: "Please complete your mentor application first.",
-          variant: "destructive",
-        });
-        return;
-      }
+    console.log('👤 Mentor profile found:', mentorData);
 
-      setMentorProfile(mentorData);
+    if (mentorError && mentorError.code !== 'PGRST116') {
+      throw mentorError;
+    }
 
-      // Fetch upcoming bookings with proper mentee information
-      const { data: bookingsData, error: bookingsError } = await supabase
-        .from('bookings')
-        .select(`
+    if (!mentorData) {
+      toast({
+        title: "Mentor Profile Not Found",
+        description: "Please complete your mentor application first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setMentorProfile(mentorData);
+
+    console.log('📅 Fetching bookings for mentor_id:', mentorData.id);
+
+    // Fetch upcoming bookings
+    const { data: bookingsData, error: bookingsError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        session_date,
+        session_time,
+        session_type,
+        status,
+        notes,
+        topic,
+        price,
+        mentee_id,
+        mentees:users!bookings_mentee_id_fkey(
           id,
-          session_date,
-          session_time,
-          session_type,
-          status,
-          notes,
-          price,
-          mentee_id,
-          mentees:users!bookings_mentee_id_fkey(
-            id,
-            first_name,
-            last_name,
-            email
-          )
-        `)
-        .eq('mentor_id', mentorData.id)
-        .in('status', ['pending', 'confirmed'])
-        .gte('session_date', new Date().toISOString().split('T')[0])
-        .order('session_date', { ascending: true })
-        .order('session_time', { ascending: true })
-        .limit(5);
+          first_name,
+          last_name,
+          email
+        )
+      `)
+      .eq('mentor_id', mentorData.id)
+      .in('status', ['pending', 'confirmed'])
+      .gte('session_date', new Date().toISOString().split('T')[0])
+      .order('session_date', { ascending: true })
+      .order('session_time', { ascending: true });
 
-      if (bookingsError) {
-        console.error('Error fetching bookings:', bookingsError);
-        throw bookingsError;
-      }
+    console.log('📊 Bookings found:', bookingsData?.length, bookingsData);
 
-      const formattedBookings = (bookingsData || []).map((booking: any) => ({
-        id: booking.id,
-        mentee: booking.mentees 
-          ? `${booking.mentees.first_name || 'Unknown'} ${booking.mentees.last_name || 'User'}` 
-          : 'Unknown Mentee',
-        menteeEmail: booking.mentees?.email || '',
-        time: booking.session_time,
-        date: new Date(booking.session_date).toLocaleDateString('en-US', { 
-          month: 'short', 
-          day: 'numeric', 
-          year: 'numeric' 
-        }),
-        topic: booking.notes || 'General Mentoring Session',
-        type: booking.session_type === 'video' ? 'Video Call' : 
-              booking.session_type === 'audio' ? 'Audio Call' : 'Chat Session',
-        status: booking.status
-      }));
+    if (bookingsError) {
+      console.error('❌ Error fetching bookings:', bookingsError);
+      throw bookingsError;
+    }
 
-      setUpcomingSessions(formattedBookings);
+    const formattedBookings = (bookingsData || []).map((booking: any) => ({
+      id: booking.id,
+      mentee: booking.mentees 
+        ? `${booking.mentees.first_name || 'Unknown'} ${booking.mentees.last_name || 'User'}` 
+        : 'Unknown Mentee',
+      menteeEmail: booking.mentees?.email || '',
+      time: booking.session_time,
+      date: new Date(booking.session_date).toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric' 
+      }),
+      topic: booking.topic || booking.notes || 'General Mentoring Session',
+      type: booking.session_type === 'video' ? 'Video Call' : 
+            booking.session_type === 'audio' ? 'Audio Call' : 'Chat Session',
+      status: booking.status
+    }));
+
+    console.log('✅ Formatted bookings:', formattedBookings);
+
+    setUpcomingSessions(formattedBookings);
+
+    // ... rest of the function remains the same
 
       // Fetch recent messages
       const { data: messagesData, error: messagesError } = await supabase

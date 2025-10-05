@@ -166,15 +166,44 @@ const BookingPage = () => {
     try {
       setBooking(true);
 
+      // ⭐ CRITICAL: Ensure user exists in users table before creating booking
+      const { data: existingUser, error: userCheckError } = await supabase
+        .from('users')
+        .select('id, email, first_name, last_name')
+        .eq('id', user.id)
+        .single();
+
+      if (userCheckError || !existingUser) {
+        // User doesn't exist in users table, create it first
+        console.log('Creating user record for booking...');
+        
+        const { error: createUserError } = await supabase
+          .from('users')
+          .insert({
+            id: user.id,
+            email: user.email || '',
+            first_name: user.user_metadata?.first_name || 'User',
+            last_name: user.user_metadata?.last_name || '',
+            user_type: 'mentee'
+          });
+
+        if (createUserError) {
+          console.error('Error creating user:', createUserError);
+          throw new Error('Failed to create user profile. Please try again.');
+        }
+      }
+
       const selectedPkg = packages.find((p) => p.id === selectedPackage);
 
+      // Format time properly
       const timeFormatted = selectedTime.includes(':')
         ? (selectedTime.split(':').length === 2 ? `${selectedTime}:00` : selectedTime)
         : `${selectedTime}:00:00`;
 
+      // Create booking with verified user
       const { error } = await supabase.from("bookings").insert({
         mentor_id: mentorId,
-        mentee_id: user.id,
+        mentee_id: user.id,  // Now guaranteed to exist
         session_date: selectedDate,
         session_time: timeFormatted,
         duration: 60,
@@ -186,7 +215,10 @@ const BookingPage = () => {
         payment_status: "pending",
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Booking error:', error);
+        throw error;
+      }
 
       toast({
         title: "Booking confirmed!",
@@ -195,11 +227,11 @@ const BookingPage = () => {
 
       navigate("/mentee-dashboard", { replace: true });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating booking:", error);
       toast({
         title: "Booking failed",
-        description: "There was an error creating your booking. Please try again.",
+        description: error.message || "There was an error creating your booking. Please try again.",
         variant: "destructive",
       });
     } finally {

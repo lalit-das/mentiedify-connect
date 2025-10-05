@@ -77,107 +77,100 @@ const CallPage = () => {
   });
 
   // Fetch session data
-  useEffect(() => {
-    const fetchSessionData = async () => {
-      if (!sessionId || !user) return;
+// Fetch session data
+useEffect(() => {
+  const fetchSessionData = async () => {
+    if (!sessionId || !user) return;
+    
+    try {
+      console.log('🔄 Fetching session data...');
       
-      try {
-        // Get call session
-        const { data: callSession, error: sessionError } = await supabase
-          .from('call_sessions')
-          .select('*')
-          .eq('id', sessionId)
-          .single();
+      // Get call session
+      const { data: callSession, error: sessionError } = await supabase
+        .from('call_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single();
 
-        if (sessionError) throw sessionError;
+      if (sessionError) throw sessionError;
 
-        // Get booking with full details
-        const { data: booking, error: bookingError } = await supabase
-          .from('bookings')
-          .select('*')
-          .eq('id', callSession.booking_id)
-          .single();
+      // Get booking with full details
+      const { data: booking, error: bookingError } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('id', callSession.booking_id)
+        .single();
 
-        if (bookingError) throw bookingError;
+      if (bookingError) throw bookingError;
 
-        // Get mentor details
-        const { data: mentorData, error: mentorError } = await supabase
-          .from('mentors')
-          .select('*')
-          .eq('id', booking.mentor_id)
-          .single();
+      // Get mentor details
+      const { data: mentorData, error: mentorError } = await supabase
+        .from('mentors')
+        .select('*')
+        .eq('id', booking.mentor_id)
+        .single();
 
-        if (mentorError) throw mentorError;
+      if (mentorError) throw mentorError;
 
-        // Get mentee details
-        const { data: menteeData, error: menteeError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', booking.mentee_id)
-          .maybeSingle();
+      // Get mentee details
+      const { data: menteeData, error: menteeError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', booking.mentee_id)
+        .maybeSingle();
 
-        if (menteeError) {
-          console.error('Error fetching mentee:', menteeError);
-        }
-
-        // ⭐ THE FIX: Determine role based on BOTH user_id AND caller_id
-        const isMentorByUserId = mentorData.user_id === user.id;
-        const isMenteeByUserId = booking.mentee_id === user.id;
-        
-        // User is mentor if their user ID matches the mentor's user_id
-        const isMentor = isMentorByUserId;
-
-        console.log('📞 Call Session Info:', {
-          currentUserId: user.id,
-          mentorUserId: mentorData.user_id,
-          menteeUserId: booking.mentee_id,
-          callerId: callSession.caller_id,
-          calleeId: callSession.callee_id,
-          isMentorByUserId,
-          isMenteeByUserId,
-          finalIsMentor: isMentor
-        });
-
-        // ⭐ Set participant info based on user role
-        if (isMentor) {
-          // Current user is MENTOR, show MENTEE info
-          setParticipantInfo({
-            name: menteeData ? `${menteeData.first_name} ${menteeData.last_name}` : 'Mentee',
-            title: 'Mentee',
-            avatar: menteeData?.profile_image_url || "/placeholder.svg"
-          });
-        } else {
-          // Current user is MENTEE, show MENTOR info
-          setParticipantInfo({
-            name: mentorData.name,
-            title: mentorData.title,
-            avatar: mentorData.profile_image_url || "/placeholder.svg"
-          });
-        }
-
-        setSessionData({
-          id: sessionId,
-          bookingId: booking.id,
-          topic: booking.topic || booking.notes || "Mentorship Session",
-          scheduledTime: `${new Date(booking.session_date).toLocaleDateString()} ${booking.session_time}`,
-          sessionType: booking.session_type || "video",
-          isMentor
-        });
-
-      } catch (error) {
-        console.error('Error fetching session data:', error);
-        toast({
-          title: "Error",
-          description: "Failed to load session details",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
+      if (menteeError) {
+        console.error('Error fetching mentee:', menteeError);
       }
-    };
 
-    fetchSessionData();
-  }, [sessionId, user, toast]);
+      // Determine role
+      const isMentor = mentorData.user_id === user.id;
+
+      console.log('📞 Call Session Info:', {
+        currentUserId: user.id,
+        mentorUserId: mentorData.user_id,
+        menteeUserId: booking.mentee_id,
+        isMentor
+      });
+
+      // Set participant info
+      if (isMentor) {
+        setParticipantInfo({
+          name: menteeData ? `${menteeData.first_name} ${menteeData.last_name}` : 'Mentee',
+          title: 'Mentee',
+          avatar: menteeData?.profile_image_url || "/placeholder.svg"
+        });
+      } else {
+        setParticipantInfo({
+          name: mentorData.name,
+          title: mentorData.title,
+          avatar: mentorData.profile_image_url || "/placeholder.svg"
+        });
+      }
+
+      setSessionData({
+        id: sessionId,
+        bookingId: booking.id,
+        topic: booking.topic || booking.notes || "Mentorship Session",
+        scheduledTime: `${new Date(booking.session_date).toLocaleDateString()} ${booking.session_time}`,
+        sessionType: booking.session_type || "video",
+        isMentor
+      });
+
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching session data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load session details",
+        variant: "destructive",
+      });
+      setLoading(false);
+    }
+  };
+
+  fetchSessionData();
+}, [sessionId, user?.id]); // ⭐ Only depend on sessionId and user.id
 
   // Update video elements when streams change
   useEffect(() => {

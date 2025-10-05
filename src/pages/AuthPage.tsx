@@ -61,13 +61,16 @@ const AuthPage = () => {
             description: "Invalid email or password. Please check your credentials and try again.",
             variant: "destructive",
           });
-        } else if (error.message === "Email not confirmed") {
-          toast({
-            title: "Email Not Confirmed",
-            description: "Please check your email and click the confirmation link before signing in.",
-            variant: "destructive",
-          });
-        } else {
+        }
+        // TEMPORARILY COMMENTED FOR TESTING
+        // else if (error.message === "Email not confirmed") {
+        //   toast({
+        //     title: "Email Not Confirmed",
+        //     description: "Please check your email and click the confirmation link before signing in.",
+        //     variant: "destructive",
+        //   });
+        // }
+        else {
           toast({
             title: "Login Failed",
             description: error.message,
@@ -146,10 +149,15 @@ const AuthPage = () => {
         return;
       }
 
+      // TEMPORARILY MODIFIED FOR TESTING - Auto login after signup
       toast({
         title: "Account Created!",
-        description: "Please check your email to verify your account.",
+        description: "Your account has been created successfully.",
       });
+
+      // Auto-redirect to appropriate dashboard
+      const redirectPath = signupData.userType === 'mentor' ? '/mentor-dashboard' : '/mentee-dashboard';
+      navigate(redirectPath, { replace: true });
 
     } catch (error) {
       toast({

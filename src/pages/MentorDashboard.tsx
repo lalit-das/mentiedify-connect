@@ -114,32 +114,53 @@ const MentorDashboard = () => {
 
       setMentorProfile(mentorData);
 
-      // Fetch upcoming bookings
+      // Fetch upcoming bookings with proper mentee information
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('bookings')
         .select(`
-          *,
-          users!bookings_mentee_id_fkey(first_name, last_name)
+          id,
+          session_date,
+          session_time,
+          session_type,
+          status,
+          notes,
+          price,
+          mentee_id,
+          mentees:users!bookings_mentee_id_fkey(
+            id,
+            first_name,
+            last_name,
+            email
+          )
         `)
         .eq('mentor_id', mentorData.id)
-        .eq('status', 'confirmed')
+        .in('status', ['pending', 'confirmed'])
         .gte('session_date', new Date().toISOString().split('T')[0])
         .order('session_date', { ascending: true })
         .order('session_time', { ascending: true })
         .limit(5);
 
       if (bookingsError) {
+        console.error('Error fetching bookings:', bookingsError);
         throw bookingsError;
       }
 
       const formattedBookings = (bookingsData || []).map((booking: any) => ({
         id: booking.id,
-        mentee: `${booking.users?.first_name} ${booking.users?.last_name}`,
+        mentee: booking.mentees 
+          ? `${booking.mentees.first_name || 'Unknown'} ${booking.mentees.last_name || 'User'}` 
+          : 'Unknown Mentee',
+        menteeEmail: booking.mentees?.email || '',
         time: booking.session_time,
-        date: new Date(booking.session_date).toLocaleDateString(),
+        date: new Date(booking.session_date).toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric', 
+          year: 'numeric' 
+        }),
         topic: booking.notes || 'General Mentoring Session',
         type: booking.session_type === 'video' ? 'Video Call' : 
-              booking.session_type === 'audio' ? 'Audio Call' : 'Chat Session'
+              booking.session_type === 'audio' ? 'Audio Call' : 'Chat Session',
+        status: booking.status
       }));
 
       setUpcomingSessions(formattedBookings);
@@ -148,20 +169,29 @@ const MentorDashboard = () => {
       const { data: messagesData, error: messagesError } = await supabase
         .from('messages')
         .select(`
-          *,
-          users!messages_sender_id_fkey(first_name, last_name)
+          id,
+          content,
+          created_at,
+          is_read,
+          sender_id,
+          senders:users!messages_sender_id_fkey(
+            first_name,
+            last_name
+          )
         `)
         .eq('recipient_id', user?.id)
         .order('created_at', { ascending: false })
         .limit(5);
 
-      if (messagesError) {
-        throw messagesError;
+      if (messagesError && messagesError.code !== 'PGRST116') {
+        console.error('Error fetching messages:', messagesError);
       }
 
       const formattedMessages = (messagesData || []).map((message: any) => ({
         id: message.id,
-        from: `${message.users?.first_name} ${message.users?.last_name}`,
+        from: message.senders 
+          ? `${message.senders.first_name} ${message.senders.last_name}` 
+          : 'Unknown User',
         message: message.content,
         time: new Date(message.created_at).toLocaleDateString(),
         unread: !message.is_read
@@ -170,17 +200,16 @@ const MentorDashboard = () => {
       setRecentMessages(formattedMessages);
 
       // Calculate stats
-      const { data: totalBookings } = await supabase
+      const { data: totalBookings, count: totalCount } = await supabase
         .from('bookings')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: false })
         .eq('mentor_id', mentorData.id)
         .eq('status', 'completed');
 
-      const totalSessions = totalBookings?.length || 0;
+      const totalSessions = totalCount || 0;
       const rating = mentorData.rating || 0;
-      const totalReviews = mentorData.total_reviews || 0;
       
-      // Calculate monthly earnings (simplified)
+      // Calculate monthly earnings
       const currentMonth = new Date().toISOString().slice(0, 7);
       const { data: monthlyBookings } = await supabase
         .from('bookings')
@@ -189,13 +218,16 @@ const MentorDashboard = () => {
         .eq('status', 'completed')
         .gte('session_date', currentMonth + '-01');
 
-      const monthlyEarnings = (monthlyBookings || []).reduce((sum: number, booking: any) => sum + (booking.price || 0), 0);
+      const monthlyEarnings = (monthlyBookings || []).reduce((sum: number, booking: any) => 
+        sum + (booking.price || 0), 0
+      );
 
       // Get unique mentee count
       const { data: uniqueMentees } = await supabase
         .from('bookings')
         .select('mentee_id')
-        .eq('mentor_id', mentorData.id);
+        .eq('mentor_id', mentorData.id)
+        .eq('status', 'completed');
 
       const activeMentees = new Set(uniqueMentees?.map(b => b.mentee_id)).size;
 
@@ -215,6 +247,58 @@ const MentorDashboard = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAcceptBooking = async (bookingId: string) => {
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: 'confirmed' })
+        .eq('id', bookingId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Booking confirmed successfully!",
+      });
+
+      // Refresh data
+      fetchMentorData();
+    } catch (error) {
+      console.error('Error accepting booking:', error);
+      toast({
+        title: "Error",
+        description: "Failed to confirm booking. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeclineBooking = async (bookingId: string) => {
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: 'cancelled' })
+        .eq('id', bookingId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Booking declined.",
+      });
+
+      // Refresh data
+      fetchMentorData();
+    } catch (error) {
+      console.error('Error declining booking:', error);
+      toast({
+        title: "Error",
+        description: "Failed to decline booking. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -256,7 +340,7 @@ const MentorDashboard = () => {
       <main className="container mx-auto px-4 py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">Mentor Dashboard</h1>
-          <p className="text-muted-foreground">Welcome back! Here's what's happening with your mentorship.</p>
+          <p className="text-muted-foreground">Welcome back, {mentorProfile.name}! Here's what's happening with your mentorship.</p>
         </div>
 
         {/* Stats Overview */}
@@ -288,34 +372,69 @@ const MentorDashboard = () => {
           <TabsContent value="sessions" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Upcoming Sessions */}
-              <Card>
+              <Card className="lg:col-span-2">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Calendar className="h-5 w-5" />
                     Upcoming Sessions
                   </CardTitle>
-                  <CardDescription>Your scheduled mentorship sessions</CardDescription>
+                  <CardDescription>Your scheduled mentorship sessions with mentees</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {upcomingSessions.map((session) => (
-                    <div key={session.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="space-y-1">
-                        <h4 className="font-medium">{session.mentee}</h4>
-                        <p className="text-sm text-muted-foreground">{session.topic}</p>
-                        <div className="flex items-center gap-2 text-sm">
-                          <Clock className="h-4 w-4" />
-                          {session.date} at {session.time}
+                  {upcomingSessions.length > 0 ? (
+                    upcomingSessions.map((session) => (
+                      <div key={session.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium">{session.mentee}</h4>
+                            <Badge variant={session.status === 'confirmed' ? 'default' : 'secondary'}>
+                              {session.status}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{session.topic}</p>
+                          <div className="flex items-center gap-4 text-sm">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {session.date}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {session.time}
+                            </div>
+                            <Badge variant="outline" className="text-xs">{session.type}</Badge>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2 ml-4">
+                          {session.status === 'pending' ? (
+                            <>
+                              <Button size="sm" onClick={() => handleAcceptBooking(session.id)}>
+                                Accept
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => handleDeclineBooking(session.id)}>
+                                Decline
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button size="sm" onClick={() => handleJoinCall(session.id)}>
+                                <Video className="h-3 w-3 mr-1" />
+                                Join Call
+                              </Button>
+                              <Button size="sm" variant="outline">
+                                Reschedule
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <div className="text-right space-y-2">
-                        <Badge variant="outline">{session.type}</Badge>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline">Reschedule</Button>
-                          <Button size="sm" onClick={() => handleJoinCall(session.id)}>Join Call</Button>
-                        </div>
-                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium mb-2">No Upcoming Sessions</h3>
+                      <p className="text-muted-foreground">You don't have any scheduled sessions at the moment.</p>
                     </div>
-                  ))}
+                  )}
                 </CardContent>
               </Card>
 
@@ -357,20 +476,30 @@ const MentorDashboard = () => {
                 <CardDescription>Latest messages from your mentees</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {recentMessages.map((message) => (
-                  <div key={message.id} className="flex items-start justify-between p-4 border rounded-lg">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-medium">{message.from}</h4>
-                        {message.unread && <Badge variant="secondary" className="text-xs">New</Badge>}
+                {recentMessages.length > 0 ? (
+                  <>
+                    {recentMessages.map((message) => (
+                      <div key={message.id} className="flex items-start justify-between p-4 border rounded-lg">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium">{message.from}</h4>
+                            {message.unread && <Badge variant="secondary" className="text-xs">New</Badge>}
+                          </div>
+                          <p className="text-sm text-muted-foreground">{message.message}</p>
+                          <p className="text-xs text-muted-foreground">{message.time}</p>
+                        </div>
+                        <Button size="sm" variant="outline">Reply</Button>
                       </div>
-                      <p className="text-sm text-muted-foreground">{message.message}</p>
-                      <p className="text-xs text-muted-foreground">{message.time}</p>
-                    </div>
-                    <Button size="sm" variant="outline">Reply</Button>
+                    ))}
+                    <Button className="w-full" variant="outline">View All Messages</Button>
+                  </>
+                ) : (
+                  <div className="text-center py-8">
+                    <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-medium mb-2">No Messages</h3>
+                    <p className="text-muted-foreground">You don't have any messages yet.</p>
                   </div>
-                ))}
-                <Button className="w-full" variant="outline">View All Messages</Button>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

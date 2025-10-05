@@ -148,20 +148,26 @@ const fetchMentorData = async () => {
     }
 
     // Manually fetch mentee details for each booking
-    const bookingsWithMentees = await Promise.all(
-      (bookingsData || []).map(async (booking: any) => {
-        const { data: menteeData } = await supabase
-          .from('users')
-          .select('id, first_name, last_name, email')
-          .eq('id', booking.mentee_id)
-          .single();
+const bookingsWithMentees = await Promise.all(
+  (bookingsData || []).map(async (booking: any) => {
+    // Remove .single() and use maybeSingle() instead
+    const { data: menteeData, error: menteeError } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .eq('id', booking.mentee_id)
+      .maybeSingle();  // ⭐ Changed from .single() to .maybeSingle()
 
-        return {
-          ...booking,
-          mentee: menteeData
-        };
-      })
-    );
+    if (menteeError) {
+      console.error('Error fetching mentee:', menteeError);
+    }
+
+    return {
+      ...booking,
+      mentee: menteeData
+    };
+  })
+);
+
 
     console.log('👥 Bookings with mentee data:', bookingsWithMentees);
 

@@ -35,56 +35,69 @@ const MenteeDashboard = () => {
     }
   }, [user]);
 
-  const handleJoinCall = async (bookingId: string) => {
-    try {
-      // Get booking details
-      const { data: booking } = await supabase
-        .from('bookings')
-        .select('mentor_id, mentee_id')
-        .eq('id', bookingId)
-        .single();
+ const handleJoinCall = async (bookingId: string) => {
+  try {
+    // Get booking details with mentor user_id
+    const { data: booking, error: bookingError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        mentor_id,
+        mentee_id,
+        mentors!inner(
+          id,
+          user_id
+        )
+      `)
+      .eq('id', bookingId)
+      .single();
 
-      if (!booking) {
-        throw new Error('Booking not found');
-      }
-
-      // Create or find call session
-      const { data: existingSession } = await supabase
-        .from('call_sessions')
-        .select('id')
-        .eq('booking_id', bookingId)
-        .single();
-
-      let sessionId = existingSession?.id;
-
-      if (!sessionId) {
-        const { data: newSession, error: sessionError } = await supabase
-          .from('call_sessions')
-          .insert({
-            booking_id: bookingId,
-            caller_id: booking.mentee_id,
-            callee_id: booking.mentor_id,
-            call_type: 'video',
-            status: 'initiated'
-          })
-          .select('id')
-          .single();
-
-        if (sessionError) throw sessionError;
-        sessionId = newSession.id;
-      }
-
-      // Navigate to call page as initiator
-      window.location.href = `/call/${sessionId}?initiator=true`;
-    } catch (error) {
-      console.error('Error joining call:', error);
-      toast({
-        title: "Error",
-        description: "Failed to join call. Please try again.",
-        variant: "destructive",
-      });
+    if (bookingError || !booking) {
+      throw new Error('Booking not found');
     }
-  };
+
+    const mentorUserId = booking.mentors.user_id;
+    const menteeUserId = booking.mentee_id;
+
+    // Create or find call session
+    const { data: existingSession } = await supabase
+      .from('call_sessions')
+      .select('id')
+      .eq('booking_id', bookingId)
+      .single();
+
+    let sessionId = existingSession?.id;
+
+    if (!sessionId) {
+      // Mentee is the caller, mentor is the callee
+      const { data: newSession, error: sessionError } = await supabase
+        .from('call_sessions')
+        .insert({
+          booking_id: bookingId,
+          caller_id: menteeUserId,  // Mentee user ID
+          callee_id: mentorUserId,  // Mentor user ID (not mentor ID!)
+          call_type: 'video',
+          status: 'initiated'
+        })
+        .select('id')
+        .single();
+
+      if (sessionError) throw sessionError;
+      sessionId = newSession.id;
+    }
+
+    // Navigate to call page as initiator
+    window.location.href = `/call/${sessionId}?initiator=true`;
+  } catch (error) {
+    console.error('Error joining call:', error);
+    toast({
+      title: "Error",
+      description: "Failed to join call. Please try again.",
+      variant: "destructive",
+    });
+  }
+};
+
 
   const fetchMenteeData = async () => {
     try {

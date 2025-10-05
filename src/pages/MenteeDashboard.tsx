@@ -35,7 +35,7 @@ const MenteeDashboard = () => {
     }
   }, [user]);
 
- const handleJoinCall = async (bookingId: string) => {
+const handleJoinCall = async (bookingId: string) => {
   try {
     // Get booking details with mentor user_id
     const { data: booking, error: bookingError } = await supabase
@@ -74,8 +74,8 @@ const MenteeDashboard = () => {
         .from('call_sessions')
         .insert({
           booking_id: bookingId,
-          caller_id: menteeUserId,  // Mentee user ID
-          callee_id: mentorUserId,  // Mentor user ID (not mentor ID!)
+          caller_id: menteeUserId,
+          callee_id: mentorUserId,
           call_type: 'video',
           status: 'initiated'
         })

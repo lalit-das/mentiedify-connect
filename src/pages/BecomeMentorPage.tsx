@@ -119,29 +119,24 @@ const BecomeMentorPage = () => {
   const handleSubmit = async () => {
     setLoading(true);
     
-    // Simulate submission - Replace with actual Supabase call
-    /*
     const { data, error } = await supabase
-      .from('mentors')
-      .insert({
-        user_id: user?.id,
-        name: formData.name,
-        title: formData.title,
-        bio: formData.bio,
-        expertise: formData.expertise,
-        hourly_rate: parseFloat(formData.hourlyRate),
-        years_experience: parseInt(formData.yearsExperience),
-        languages: formData.languages,
-        video_intro_url: formData.videoIntroUrl || null,
-        availability_status: 'available',
-        is_verified: false,
-        rating: 0,
-        total_reviews: 0,
-        session_types: ['video', 'audio', 'chat'],
-        response_time_hours: 24,
-        cancellation_policy: 'flexible'
-      });
-    */
+  .from('mentors')
+  .insert({
+    user_id: user?.id,
+    name: formData.name,
+    title: formData.title,
+    bio: formData.bio,
+    expertise: formData.expertise,
+    hourly_rate: parseFloat(formData.hourlyRate),
+    years_experience: parseInt(formData.yearsExperience),
+    languages: formData.languages,
+    video_intro_url: formData.videoIntroUrl || null,
+    // Defaults from schema
+    availability_status: 'available',
+    is_verified: false,
+    rating: 0,
+    total_reviews: 0
+  });
     
     console.log("Form submitted:", formData);
     

@@ -7,12 +7,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 const MentorDashboard = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [mentorProfile, setMentorProfile] = useState<any>(null);
   const [upcomingSessions, setUpcomingSessions] = useState<any[]>([]);
   const [recentMessages, setRecentMessages] = useState<any[]>([]);
@@ -240,7 +242,7 @@ const MentorDashboard = () => {
           <div className="text-center py-12">
             <h2 className="text-2xl font-bold mb-2">Complete Your Mentor Profile</h2>
             <p className="text-muted-foreground mb-4">You need to complete your mentor application to access the dashboard.</p>
-            <Button onClick={() => window.location.href = '/become-mentor'}>
+            <Button onClick={() => navigate('/become-mentor')}>
               Complete Application
             </Button>
           </div>

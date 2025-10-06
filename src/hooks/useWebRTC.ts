@@ -28,18 +28,33 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
   // Initialize local media stream
   const initializeMedia = useCallback(async (audio: boolean = true, video: boolean = true) => {
     try {
+      // First, stop any existing local stream to release devices
+      if (localStream) {
+        console.log('🧹 Stopping existing stream before requesting new one...');
+        localStream.getTracks().forEach(track => {
+          track.stop();
+          console.log('🛑 Stopped existing track:', track.kind);
+        });
+        setLocalStream(null);
+      }
+
+      console.log('🎤 Requesting media devices...');
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: audio ? { echoCancellation: true, noiseSuppression: true } : false, 
         video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false 
       });
       setLocalStream(stream);
+      console.log('✅ Media devices acquired:', stream.getTracks().map(t => t.kind));
       return stream;
-    } catch (err) {
-      setError('Failed to access camera/microphone');
-      console.error('Error accessing media devices:', err);
+    } catch (err: any) {
+      const errorMessage = err.name === 'NotReadableError' 
+        ? 'Camera/microphone is already in use. Please close other tabs or applications using your devices.'
+        : 'Failed to access camera/microphone. Please check your permissions.';
+      setError(errorMessage);
+      console.error('❌ Error accessing media devices:', err.name, err.message);
       throw err;
     }
-  }, []);
+  }, [localStream]);
 
   // Create peer connection
   const createPeerConnection = useCallback(() => {
@@ -215,15 +230,29 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
 
   // End call
   const endCall = useCallback(() => {
+    console.log('🧹 Cleaning up call...');
+    
     // Close peer connection
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
 
-    // Stop all tracks
-    localStream?.getTracks().forEach(track => track.stop());
-    remoteStream?.getTracks().forEach(track => track.stop());
+    // Stop all local tracks first
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        track.stop();
+        console.log('🛑 Stopped local track:', track.kind);
+      });
+    }
+    
+    // Stop all remote tracks
+    if (remoteStream) {
+      remoteStream.getTracks().forEach(track => {
+        track.stop();
+        console.log('🛑 Stopped remote track:', track.kind);
+      });
+    }
 
     // Unsubscribe from signaling channel
     if (signalingChannelRef.current) {
@@ -235,6 +264,9 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
     setRemoteStream(null);
     setIsConnected(false);
     setIsConnecting(false);
+    setError(null);
+    
+    console.log('✅ Call cleanup complete');
   }, [localStream, remoteStream]);
 
   // Toggle audio
@@ -254,6 +286,7 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      console.log('🧹 Component unmounting, cleaning up...');
       endCall();
     };
   }, [endCall]);

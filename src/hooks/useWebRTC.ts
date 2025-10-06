@@ -98,13 +98,18 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
     return new Promise<any>((resolve, reject) => {
       const channel = supabase.channel(`webrtc-${sessionId}`, {
         config: {
-          broadcast: { self: false }
+          broadcast: { self: false, ack: true }
         }
       });
 
       channel
         .on('broadcast', { event: 'offer' }, async ({ payload }) => {
-          console.log('📥 Received offer');
+          console.log('📥 Received offer from:', payload.from);
+          if (isInitiator) {
+            console.log('⚠️ Ignoring offer - I am the initiator');
+            return;
+          }
+          
           let pc = peerConnectionRef.current;
           
           // If no peer connection exists, we need to set up media first
@@ -133,7 +138,7 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
             channel.send({
               type: 'broadcast',
               event: 'answer',
-              payload: { sessionId, answer }
+              payload: { sessionId, answer, from: 'receiver' }
             });
           } catch (err) {
             console.error('❌ Error handling offer:', err);
@@ -141,16 +146,24 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
           }
         })
         .on('broadcast', { event: 'answer' }, async ({ payload }) => {
-          console.log('Received answer');
+          console.log('📥 Received answer from:', payload.from);
+          if (!isInitiator) {
+            console.log('⚠️ Ignoring answer - I am not the initiator');
+            return;
+          }
+          
           const pc = peerConnectionRef.current;
           
-          if (pc) {
+          if (pc && pc.signalingState !== 'stable') {
             try {
               await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
+              console.log('✅ Answer processed successfully');
             } catch (err) {
-              console.error('Error handling answer:', err);
+              console.error('❌ Error handling answer:', err);
               setError('Failed to process call answer');
             }
+          } else {
+            console.log('⚠️ Cannot process answer - peer connection state:', pc?.signalingState);
           }
         })
         .on('broadcast', { event: 'ice-candidate' }, async ({ payload }) => {
@@ -213,7 +226,7 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
         channel.send({
           type: 'broadcast',
           event: 'offer',
-          payload: { sessionId, offer }
+          payload: { sessionId, offer, from: 'initiator' }
         });
       } else {
         console.log('👥 User is receiver, waiting for offer...');

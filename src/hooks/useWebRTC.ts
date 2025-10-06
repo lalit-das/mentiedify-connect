@@ -80,63 +80,86 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
 
   // Setup signaling channel
   const setupSignaling = useCallback(() => {
-    const channel = supabase.channel(`webrtc-${sessionId}`, {
-      config: {
-        broadcast: { self: false }
-      }
-    });
-
-    channel
-      .on('broadcast', { event: 'offer' }, async ({ payload }) => {
-        console.log('Received offer');
-        const pc = peerConnectionRef.current || createPeerConnection();
-        
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(payload.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          
-          channel.send({
-            type: 'broadcast',
-            event: 'answer',
-            payload: { sessionId, answer }
-          });
-        } catch (err) {
-          console.error('Error handling offer:', err);
-          setError('Failed to process call offer');
+    return new Promise<any>((resolve, reject) => {
+      const channel = supabase.channel(`webrtc-${sessionId}`, {
+        config: {
+          broadcast: { self: false }
         }
-      })
-      .on('broadcast', { event: 'answer' }, async ({ payload }) => {
-        console.log('Received answer');
-        const pc = peerConnectionRef.current;
-        
-        if (pc) {
-          try {
-            await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
-          } catch (err) {
-            console.error('Error handling answer:', err);
-            setError('Failed to process call answer');
-          }
-        }
-      })
-      .on('broadcast', { event: 'ice-candidate' }, async ({ payload }) => {
-        const pc = peerConnectionRef.current;
-        
-        if (pc && payload.candidate) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-          } catch (err) {
-            console.error('Error adding ICE candidate:', err);
-          }
-        }
-      })
-      .subscribe((status) => {
-        console.log('Signaling channel status:', status);
       });
 
-    signalingChannelRef.current = channel;
-    return channel;
-  }, [sessionId, createPeerConnection]);
+      channel
+        .on('broadcast', { event: 'offer' }, async ({ payload }) => {
+          console.log('📥 Received offer');
+          let pc = peerConnectionRef.current;
+          
+          // If no peer connection exists, we need to set up media first
+          if (!pc) {
+            console.log('⚠️ No peer connection, initializing...');
+            try {
+              const stream = await initializeMedia();
+              pc = createPeerConnection();
+              stream.getTracks().forEach(track => {
+                pc!.addTrack(track, stream);
+              });
+              console.log('✅ Media and peer connection initialized for receiver');
+            } catch (err) {
+              console.error('❌ Failed to initialize media for receiver:', err);
+              setError('Failed to initialize camera/microphone');
+              return;
+            }
+          }
+          
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            
+            console.log('📤 Sending answer');
+            channel.send({
+              type: 'broadcast',
+              event: 'answer',
+              payload: { sessionId, answer }
+            });
+          } catch (err) {
+            console.error('❌ Error handling offer:', err);
+            setError('Failed to process call offer');
+          }
+        })
+        .on('broadcast', { event: 'answer' }, async ({ payload }) => {
+          console.log('Received answer');
+          const pc = peerConnectionRef.current;
+          
+          if (pc) {
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(payload.answer));
+            } catch (err) {
+              console.error('Error handling answer:', err);
+              setError('Failed to process call answer');
+            }
+          }
+        })
+        .on('broadcast', { event: 'ice-candidate' }, async ({ payload }) => {
+          const pc = peerConnectionRef.current;
+          
+          if (pc && payload.candidate) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+            } catch (err) {
+              console.error('Error adding ICE candidate:', err);
+            }
+          }
+        })
+        .subscribe((status) => {
+          console.log('Signaling channel status:', status);
+          if (status === 'SUBSCRIBED') {
+            signalingChannelRef.current = channel;
+            resolve(channel);
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            reject(new Error(`Channel subscription failed: ${status}`));
+          }
+        });
+    });
+  }, [sessionId, createPeerConnection, initializeMedia]);
 
   // Start call
   const startCall = useCallback(async () => {
@@ -144,34 +167,49 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
     setError(null);
 
     try {
+      console.log('🎬 Starting call...');
+      
+      // Initialize media first
       const stream = await initializeMedia();
+      console.log('✅ Media initialized');
+      
+      // Create peer connection
       const pc = createPeerConnection();
+      console.log('✅ Peer connection created');
       
       // Add local tracks to peer connection
       stream.getTracks().forEach(track => {
         pc.addTrack(track, stream);
       });
+      console.log('✅ Local tracks added');
 
-      // Setup signaling
-      setupSignaling();
+      // Setup signaling and wait for it to be ready
+      console.log('📡 Setting up signaling...');
+      const channel = await setupSignaling();
+      console.log('✅ Signaling channel ready');
 
-      // If initiator, create and send offer
+      // If initiator, create and send offer after signaling is ready
       if (isInitiator) {
+        console.log('👤 User is initiator, creating offer...');
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         
-        signalingChannelRef.current?.send({
+        console.log('📤 Sending offer');
+        channel.send({
           type: 'broadcast',
           event: 'offer',
           payload: { sessionId, offer }
         });
+      } else {
+        console.log('👥 User is receiver, waiting for offer...');
       }
 
       setIsConnecting(false);
     } catch (err) {
       setIsConnecting(false);
-      setError('Failed to start call');
-      console.error('Error starting call:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to start call';
+      setError(errorMessage);
+      console.error('❌ Error starting call:', err);
     }
   }, [initializeMedia, createPeerConnection, setupSignaling, isInitiator, sessionId]);
 

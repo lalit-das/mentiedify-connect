@@ -157,7 +157,7 @@ const FeaturedMentors = () => {
             size="lg" 
             variant="outline"
             className="border-primary text-primary hover:bg-primary hover:text-white transition-colors"
-            onClick={() => navigate('/explore-mentors')}
+            onClick={() => navigate('/explore')}
           >
             View All Mentors
           </Button>

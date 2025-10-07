@@ -54,7 +54,7 @@ const MentorDashboard = () => {
     const mentorUserId = booking.mentors.user_id;
     const menteeUserId = booking.mentee_id;
 
-    // Find or create call session
+    // Find or create call session - MENTOR IS ALWAYS THE INITIATOR
     const { data: existingSession } = await supabase
       .from('call_sessions')
       .select('id, caller_id')
@@ -62,15 +62,14 @@ const MentorDashboard = () => {
       .single();
 
     let sessionId = existingSession?.id;
-    let isInitiator = false;
 
     if (!sessionId) {
-      // Mentor creates new session (mentor as caller)
+      // Create new session with MENTOR as caller (initiator)
       const { data: newSession, error: sessionError } = await supabase
         .from('call_sessions')
         .insert({
           booking_id: bookingId,
-          caller_id: mentorUserId,
+          caller_id: mentorUserId, // Mentor is always the caller/initiator
           callee_id: menteeUserId,
           call_type: 'video',
           status: 'initiated'
@@ -80,11 +79,10 @@ const MentorDashboard = () => {
 
       if (sessionError) throw sessionError;
       sessionId = newSession.id;
-      isInitiator = true;
-    } else {
-      // Check if mentor is the caller
-      isInitiator = existingSession.caller_id === user?.id;
     }
+
+    // Mentor is ALWAYS the initiator
+    const isInitiator = true;
 
     // Navigate to call page
     window.location.href = `/call/${sessionId}?initiator=${isInitiator}`;

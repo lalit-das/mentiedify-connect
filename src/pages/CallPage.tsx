@@ -54,6 +54,7 @@ const CallPage = () => {
     remoteStream,
     isConnecting,
     isConnected,
+    isReconnecting,
     error: webrtcError,
     startCall: startWebRTCCall,
     endCall: endWebRTCCall,
@@ -321,6 +322,12 @@ useEffect(() => {
               <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>Connecting...</span>
+              </div>
+            )}
+            {isReconnecting && (
+              <div className="flex items-center space-x-2 text-sm text-amber-600">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Reconnecting...</span>
               </div>
             )}
             <Button variant="ghost" size="sm">

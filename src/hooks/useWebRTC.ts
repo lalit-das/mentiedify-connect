@@ -10,8 +10,21 @@ interface WebRTCConfig {
 
 const ICE_SERVERS = {
   iceServers: [
+    // STUN servers for NAT traversal
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    // TURN servers for better connectivity (free tier)
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ]
 };
 
@@ -21,9 +34,13 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const signalingChannelRef = useRef<any>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isReadyRef = useRef(false);
 
   // Initialize local media stream
   const initializeMedia = useCallback(async (audio: boolean = true, video: boolean = true) => {
@@ -80,12 +97,30 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('Connection state:', pc.connectionState);
-      setIsConnected(pc.connectionState === 'connected');
+      console.log('📊 Connection state:', pc.connectionState);
+      const connected = pc.connectionState === 'connected';
+      setIsConnected(connected);
       onConnectionStateChange?.(pc.connectionState);
       
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        setError('Connection failed or disconnected');
+      if (connected) {
+        // Reset reconnection attempts on successful connection
+        reconnectAttemptsRef.current = 0;
+        setIsReconnecting(false);
+        console.log('✅ Connection established successfully');
+      } else if (pc.connectionState === 'failed') {
+        console.error('❌ Connection failed, attempting to reconnect...');
+        handleReconnect();
+      } else if (pc.connectionState === 'disconnected') {
+        console.warn('⚠️ Connection disconnected, attempting to reconnect...');
+        handleReconnect();
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('🧊 ICE connection state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        console.error('❌ ICE connection failed');
+        handleReconnect();
       }
     };
 
@@ -93,16 +128,49 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
     return pc;
   }, [sessionId, onRemoteStream, onConnectionStateChange]);
 
+  // Handle reconnection with exponential backoff
+  const handleReconnect = useCallback(() => {
+    if (reconnectAttemptsRef.current >= 5) {
+      setError('Unable to establish connection after multiple attempts');
+      setIsReconnecting(false);
+      return;
+    }
+
+    setIsReconnecting(true);
+    reconnectAttemptsRef.current += 1;
+    
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+    console.log(`🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/5)...`);
+    
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+    
+    reconnectTimeoutRef.current = setTimeout(() => {
+      console.log('🔄 Attempting reconnection...');
+      // Close existing connection
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+      }
+      // Restart call
+      startCall();
+    }, delay);
+  }, []);
+
   // Setup signaling channel
   const setupSignaling = useCallback(() => {
     return new Promise<any>((resolve, reject) => {
       const channel = supabase.channel(`webrtc-${sessionId}`, {
         config: {
-          broadcast: { self: false, ack: true }
+          broadcast: { self: true, ack: true } // Changed to true to receive own messages
         }
       });
 
       channel
+        .on('broadcast', { event: 'ready' }, ({ payload }) => {
+          console.log('✅ Peer is ready:', payload.from);
+          isReadyRef.current = true;
+        })
         .on('broadcast', { event: 'offer' }, async ({ payload }) => {
           console.log('📥 Received offer from:', payload.from);
           if (isInitiator) {
@@ -216,9 +284,27 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
       const channel = await setupSignaling();
       console.log('✅ Signaling channel ready');
 
-      // If initiator, create and send offer after signaling is ready
+      // Send ready signal
+      console.log('📤 Sending ready signal');
+      channel.send({
+        type: 'broadcast',
+        event: 'ready',
+        payload: { sessionId, from: isInitiator ? 'initiator' : 'receiver' }
+      });
+
+      // If initiator, wait a bit for receiver to be ready, then create and send offer
       if (isInitiator) {
-        console.log('👤 User is initiator, creating offer...');
+        console.log('👤 User is initiator, waiting for receiver to be ready...');
+        
+        // Wait up to 5 seconds for receiver to be ready
+        const maxWaitTime = 5000;
+        const startTime = Date.now();
+        
+        while (!isReadyRef.current && Date.now() - startTime < maxWaitTime) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        console.log('👤 Creating offer...');
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         
@@ -244,6 +330,16 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
   // End call
   const endCall = useCallback(() => {
     console.log('🧹 Cleaning up call...');
+    
+    // Clear reconnection timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
+    // Reset reconnection state
+    reconnectAttemptsRef.current = 0;
+    isReadyRef.current = false;
     
     // Close peer connection
     if (peerConnectionRef.current) {
@@ -277,6 +373,7 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
     setRemoteStream(null);
     setIsConnected(false);
     setIsConnecting(false);
+    setIsReconnecting(false);
     setError(null);
     
     console.log('✅ Call cleanup complete');
@@ -309,6 +406,7 @@ export const useWebRTC = ({ sessionId, isInitiator, onRemoteStream, onConnection
     remoteStream,
     isConnecting,
     isConnected,
+    isReconnecting,
     error,
     startCall,
     endCall,

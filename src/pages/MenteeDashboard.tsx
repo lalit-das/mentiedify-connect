@@ -59,17 +59,18 @@ const handleJoinCall = async (bookingId: string) => {
     const mentorUserId = booking.mentors.user_id;
     const menteeUserId = booking.mentee_id;
 
-    // Create or find call session
+    // Find or create call session
     const { data: existingSession } = await supabase
       .from('call_sessions')
-      .select('id')
+      .select('id, caller_id')
       .eq('booking_id', bookingId)
       .single();
 
     let sessionId = existingSession?.id;
+    let isInitiator = false;
 
     if (!sessionId) {
-      // Mentee is the caller, mentor is the callee
+      // Mentee creates new session (mentee as caller)
       const { data: newSession, error: sessionError } = await supabase
         .from('call_sessions')
         .insert({
@@ -84,10 +85,14 @@ const handleJoinCall = async (bookingId: string) => {
 
       if (sessionError) throw sessionError;
       sessionId = newSession.id;
+      isInitiator = true;
+    } else {
+      // Check if mentee is the caller
+      isInitiator = existingSession.caller_id === user?.id;
     }
 
-    // Navigate to call page as initiator
-    window.location.href = `/call/${sessionId}?initiator=true`;
+    // Navigate to call page
+    window.location.href = `/call/${sessionId}?initiator=${isInitiator}`;
   } catch (error) {
     console.error('Error joining call:', error);
     toast({
